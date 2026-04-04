@@ -10,7 +10,7 @@ def calculate_psnr(img1, img2):
     PIXEL_MAX = 255.0
     return 20 * np.log10(PIXEL_MAX / np.sqrt(mse))
 
-def validate(model_path):
+def validate(model_path, data_path=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     model = ImprovedSSIUNet(upscale=4).to(device)
     
@@ -21,11 +21,18 @@ def validate(model_path):
     model.load_state_dict(torch.load(model_path, map_location=device))
     model.eval()
     
-    test_dir = 'MSTbic_Project_Archive/SuperResolutionMultiscaleTraining/dependencies/KAIR/testsets/set5'
+    # Flexible data path for Kaggle or local
+    test_dir = data_path if data_path else 'MSTbic_Project_Archive/SuperResolutionMultiscaleTraining/dependencies/KAIR/testsets/set5'
+    
+    if not os.path.exists(test_dir):
+        print(f"Error: Test directory {test_dir} not found!")
+        return
+
     hr_paths = sorted([os.path.join(test_dir, f) for f in os.listdir(test_dir) if f.endswith(('.png', '.jpg', '.bmp'))])
     
     psnrs = []
     print(f"\n--- VALIDATING FINAL SSIU-FA (2026) VS 2025 NTIRE SOTA ---")
+    print(f"Testing on: {test_dir}")
     
     for hr_path in hr_paths:
         hr = cv2.imread(hr_path)
@@ -57,4 +64,10 @@ def validate(model_path):
     print(f"Status: {status}")
 
 if __name__ == "__main__":
-    validate("final_improved_ssiu_project.pth")
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--model_path', type=str, default="final_improved_ssiu_project.pth")
+    parser.add_argument('--data_path', type=str, default=None)
+    args = parser.parse_args()
+    
+    validate(args.model_path, args.data_path)
