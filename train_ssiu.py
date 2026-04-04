@@ -117,13 +117,14 @@ def train(model_type='improved', iterations=8000, data_path=None, resume_path=No
         scheduler.step()
         
         if i % 100 == 0:
-            print(f"[{i:04d}/{iterations}] Total: {loss.item():.4f} | Charb: {loss_main.item():.4f} | Lf: {loss_f.item():.4f} | LR: {scheduler.get_last_lr()[0]:.6f}")
+            pct = 100 * i / iterations
+            print(f"🚀 Speed: {i:04d}/{iterations} ({pct:.0f}%) | Loss: {loss.item():.4f} | LR: {scheduler.get_last_lr()[0]:.6f}")
 
         # PERIODIC CHECKPOINTS
         if i > 0 and i % 2000 == 0:
             ckpt_path = f"checkpoint_{model_type}_ssiu_iter_{i}.pth"
             torch.save(model.state_dict(), ckpt_path)
-            print(f"Checkpoint saved: {ckpt_path} 💾")
+            print(f"\n💾 CHECKPOINT REACHED: Saved to {ckpt_path}\n")
 
     torch.save(model.state_dict(), f"final_{model_type}_ssiu_project.pth")
     print(f"\n--- ULTRA-FAST RECONSTRUCTION COMPLETE ---")

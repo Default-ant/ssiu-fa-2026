@@ -57,11 +57,16 @@ def validate(model_path, data_path=None):
         print(f"Image: {os.path.basename(hr_path)} | PSNR: {psnr:.2f} dB")
 
     avg_psnr = np.mean(psnrs)
-    print(f"\n--- FINAL RESULTS ---")
-    print(f"Average PSNR (Set5 x4): {avg_psnr:.2f} dB")
-    print(f"SSIU (2025) SOTA Benchmark: 32.64 dB")
-    status = "BEAT SOTA 🏆" if avg_psnr >= 32.64 else "PROGRESSING"
-    print(f"Status: {status}")
+    print(f"\n" + "="*30)
+    print(f"📊 SUMMARY REPORT")
+    print(f"Average PSNR: {avg_psnr:.2f} dB")
+    print(f"SOTA Benchmark: 32.64 dB")
+    
+    if avg_psnr >= 32.64:
+        print(f"STATUS: 🏆 BEAT SOTA!")
+    else:
+        print(f"STATUS: 📈 PROGRESSING (Delta: {avg_psnr - 32.64:.2f} dB)")
+    print("="*30 + "\n")
 
 if __name__ == "__main__":
     import argparse
