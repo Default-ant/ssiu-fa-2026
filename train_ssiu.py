@@ -72,11 +72,19 @@ def frequency_loss(sr, hr):
     hr_fft = torch.fft.rfft2(hr, norm='ortho')
     return torch.mean(torch.abs(sr_fft - hr_fft))
 
-def train(model_type='improved', iterations=8000, data_path=None):
+def train(model_type='improved', iterations=8000, data_path=None, resume_path=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"--- STARTING SOTA-PUSH SSIU-FA (2026) TRAINING ---")
     
     model = ImprovedSSIUNet(upscale=4).to(device)
+    
+    # RESUME FROM CHECKPOINT LOGIC
+    start_iter = 0
+    if resume_path and os.path.exists(resume_path):
+        print(f"Resuming training from {resume_path}... 📂")
+        model.load_state_dict(torch.load(resume_path, map_location=device))
+        # Extract iteration if possible (optional refinement)
+    
     optimizer = optim.Adam(model.parameters(), lr=1e-3)
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=iterations)
     criterion = CharbonnierLoss() # SOTA standard for SR
@@ -88,7 +96,7 @@ def train(model_type='improved', iterations=8000, data_path=None):
     loader_iter = iter(dataloader)
     
     model.train()
-    for i in range(iterations + 1):
+    for i in range(start_iter, iterations + 1):
         try:
             lr, hr = next(loader_iter)
         except StopIteration:
@@ -111,6 +119,12 @@ def train(model_type='improved', iterations=8000, data_path=None):
         if i % 100 == 0:
             print(f"[{i:04d}/{iterations}] Total: {loss.item():.4f} | Charb: {loss_main.item():.4f} | Lf: {loss_f.item():.4f} | LR: {scheduler.get_last_lr()[0]:.6f}")
 
+        # PERIODIC CHECKPOINTS
+        if i > 0 and i % 2000 == 0:
+            ckpt_path = f"checkpoint_{model_type}_ssiu_iter_{i}.pth"
+            torch.save(model.state_dict(), ckpt_path)
+            print(f"Checkpoint saved: {ckpt_path} 💾")
+
     torch.save(model.state_dict(), f"final_{model_type}_ssiu_project.pth")
     print(f"\n--- ULTRA-FAST RECONSTRUCTION COMPLETE ---")
     print(f"Results are ready for IEEE Trans Analysis.")
@@ -120,6 +134,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', type=str, default=None)
     parser.add_argument('--iterations', type=int, default=8000)
+    parser.add_argument('--resume', type=str, default=None)
     args = parser.parse_args()
     
-    train(model_type='improved', iterations=args.iterations, data_path=args.data_path)
+    train(model_type='improved', iterations=args.iterations, data_path=args.data_path, resume_path=args.resume)
