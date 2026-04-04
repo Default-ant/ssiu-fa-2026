@@ -17,4 +17,4 @@ datasets/
 *.bmp
 *.png
 *.jpg
-!README.md
+!final_improved_ssiu_project.pth

@@ -8,7 +8,7 @@ import os
 from ssiu_improved import ImprovedSSIUNet
 
 class UltraLightningDataset(Dataset):
-    def __init__(self, data_path=None, upscale=4, patch_size=16):
+    def __init__(self, data_path=None, upscale=4, patch_size=32):
         super().__init__()
         target_dir = data_path if data_path else 'MSTbic_Project_Archive/SuperResolutionMultiscaleTraining/archive/MANGA109'
         
@@ -72,9 +72,9 @@ def frequency_loss(sr, hr):
     hr_fft = torch.fft.rfft2(hr, norm='ortho')
     return torch.mean(torch.abs(sr_fft - hr_fft))
 
-def train(model_type='improved', iterations=8000, data_path=None, resume_path=None):
+def train(model_type='improved', iterations=25000, data_path=None, resume_path=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"--- STARTING SOTA-PUSH SSIU-FA (2026) TRAINING ---")
+    print(f"--- STARTING FINAL SOTA-BEAT SSIU-V2 RUN (25K Iterations) ---")
     
     model = ImprovedSSIUNet(upscale=4).to(device)
     
@@ -134,7 +134,7 @@ if __name__ == "__main__":
     import argparse
     parser = argparse.ArgumentParser()
     parser.add_argument('--data_path', type=str, default=None)
-    parser.add_argument('--iterations', type=int, default=8000)
+    parser.add_argument('--iterations', type=int, default=25000)
     parser.add_argument('--resume', type=str, default=None)
     args = parser.parse_args()
     
