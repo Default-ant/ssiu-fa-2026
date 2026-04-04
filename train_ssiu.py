@@ -8,14 +8,14 @@ import os
 from ssiu_improved import ImprovedSSIUNet
 
 class UltraLightningDataset(Dataset):
-    def __init__(self, upscale=4, patch_size=16):
+    def __init__(self, data_path=None, upscale=4, patch_size=16):
         super().__init__()
-        target_dir = 'MSTbic_Project_Archive/SuperResolutionMultiscaleTraining/archive/MANGA109'
+        target_dir = data_path if data_path else 'MSTbic_Project_Archive/SuperResolutionMultiscaleTraining/archive/MANGA109'
         
         self.hr_images = []
         if os.path.exists(target_dir):
             file_list = sorted([os.path.join(target_dir, f) for f in os.listdir(target_dir) if f.endswith(('.png', '.jpg', '.bmp'))])
-            print(f"Loading {len(file_list)} images for high-performance training... 🔥")
+            print(f"Loading {len(file_list)} images for high-performance training from {target_dir}... 🔥")
             for f in file_list:
                 img = cv2.imread(f)
                 if img is not None:
@@ -72,7 +72,7 @@ def frequency_loss(sr, hr):
     hr_fft = torch.fft.rfft2(hr, norm='ortho')
     return torch.mean(torch.abs(sr_fft - hr_fft))
 
-def train(model_type='improved', iterations=8000):
+def train(model_type='improved', iterations=8000, data_path=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     print(f"--- STARTING SOTA-PUSH SSIU-FA (2026) TRAINING ---")
     
@@ -81,7 +81,7 @@ def train(model_type='improved', iterations=8000):
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=iterations)
     criterion = CharbonnierLoss() # SOTA standard for SR
     
-    dataset = UltraLightningDataset(upscale=4)
+    dataset = UltraLightningDataset(data_path=data_path, upscale=4)
     if len(dataset) == 0: return
         
     dataloader = DataLoader(dataset, batch_size=32, shuffle=True) # Max saturation
@@ -116,5 +116,10 @@ def train(model_type='improved', iterations=8000):
     print(f"Results are ready for IEEE Trans Analysis.")
 
 if __name__ == "__main__":
-    # Increased patch_size to 32 for better SOTA performance
-    train(model_type='improved', iterations=8000)
+    import argparse
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data_path', type=str, default=None)
+    parser.add_argument('--iterations', type=int, default=8000)
+    args = parser.parse_args()
+    
+    train(model_type='improved', iterations=args.iterations, data_path=args.data_path)
