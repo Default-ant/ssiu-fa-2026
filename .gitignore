@@ -18,3 +18,4 @@ datasets/
 *.png
 *.jpg
 !final_improved_ssiu_project.pth
+!ssiu-div2k.pth
