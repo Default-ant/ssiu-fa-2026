@@ -121,7 +121,7 @@ def train(model_type='improved', iterations=25000, data_path=None, resume_path=N
             print(f"🚀 Speed: {i:04d}/{iterations} ({pct:.0f}%) | Loss: {loss.item():.4f} | LR: {scheduler.get_last_lr()[0]:.6f}")
 
         # PERIODIC CHECKPOINTS
-        if i > 0 and i % 2000 == 0:
+        if i > 0 and i % 5000 == 0:
             ckpt_path = f"checkpoint_{model_type}_ssiu_iter_{i}.pth"
             torch.save(model.state_dict(), ckpt_path)
             print(f"\n💾 CHECKPOINT REACHED: Saved to {ckpt_path}\n")
