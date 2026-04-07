@@ -60,7 +60,30 @@ def validate(model_path, data_path=None):
     sota_target = SOTA_BENCHMARKS.get(ds_name, 32.64)
     print(f"🚀 Running Live Benchmark (Dataset: {ds_name.upper()} | Device: {device})")
     
-    # 2. Initialize Models
+    # 2. Live Discovery of Baseline
+    model_b = None
+    baseline_available = False
+    baseline_weights = None
+    
+    # Recursively find the network file
+    import glob
+    net_matches = glob.glob("**/SSUFSR_network.py", recursive=True)
+    if net_matches:
+        net_dir = os.path.dirname(os.path.dirname(os.path.abspath(net_matches[0])))
+        if net_dir not in sys.path:
+            sys.path.append(net_dir)
+        try:
+            from models.SSUFSR_network import SSUFSRNet
+            baseline_available = True
+        except ImportError as e:
+            print(f"⚠️ Baseline dependency missing: {e}. Try: !pip install einops")
+
+    # Recursively find weights
+    weight_matches = glob.glob("**/model_x4_290.pt", recursive=True)
+    if weight_matches:
+        baseline_weights = weight_matches[0]
+
+    # 3. Initialize Models
     # Improved Model
     model_i = ImprovedSSIUNet(upscale=4).to(device)
     if not os.path.exists(model_path):
@@ -69,32 +92,21 @@ def validate(model_path, data_path=None):
     model_i.load_state_dict(torch.load(model_path, map_location=device))
     model_i.eval()
     
-    # Baseline Model (Live Search)
-    model_b = None
-    possible_weight_paths = [
-        "ssiu-div2k.pth",
-        "./SSIU/pretrain_model/model_x4_290.pt",
-        "./archive_v3_restoration/pretrain_model/model_x4_290.pt"
-    ]
-    
-    # Specifically look for the 16-channel baseline weight
-    baseline_weights = None
-    for p in possible_weight_paths:
-        if "model_x4_290.pt" in p and os.path.exists(p):
-            baseline_weights = p
-            break
-
-    if BASELINE_AVAILABLE and baseline_weights:
-        print(f"✅ Found Baseline Weights ({baseline_weights}). Running LIVE comparison.")
+    # Baseline Model (Live)
+    if baseline_available and baseline_weights:
+        print(f"✅ Found Baseline weights at: {baseline_weights}")
         try:
             model_b = SSUFSRNet(BaselineArgs(scale=4)).to(device)
             model_b.load_state_dict(torch.load(baseline_weights, map_location=device))
             model_b.eval()
         except Exception as e:
-            print(f"⚠️ Could not init baseline: {e}. Falling back to paper reference.")
+            print(f"⚠️ Baseline load error: {e}")
             model_b = None
     else:
-        print(f"⚠️ Baseline weights not found. Using Paper Benchmark ({sota_target} dB) as reference.")
+        print(f"⚠️ Using Paper Reference ({sota_target} dB) for baseline.")
+        # Debug why it's skipping
+        if not baseline_available: print("   (Arch not found)")
+        if not baseline_weights: print("   (Weights not found)")
 
     # 3. Setup Dataset
     test_dir = data_path if data_path else 'MSTbic_Project_Archive/SuperResolutionMultiscaleTraining/dependencies/KAIR/testsets/set5'
