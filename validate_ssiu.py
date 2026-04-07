@@ -31,7 +31,7 @@ class BaselineArgs:
 def calculate_psnr(img1, img2, border=4):
     if img1.shape != img2.shape: return 0
     img1, img2 = img1.astype(np.float64), img2.astype(np.float64)
-    # y = 16 + 0.2567*R + 0.5041*G + 0.0979*B
+    # Correct Academic BT.601 Y-channel
     y1 = 16.0 + (65.481 * img1[..., 0] + 128.553 * img1[..., 1] + 24.966 * img1[..., 2]) / 255.0
     y2 = 16.0 + (65.481 * img2[..., 0] + 128.553 * img2[..., 1] + 24.966 * img2[..., 2]) / 255.0
     if border > 0:
@@ -41,7 +41,7 @@ def calculate_psnr(img1, img2, border=4):
     if mse == 0: return 100
     return 20 * np.log10(255.0 / np.sqrt(mse))
 
-def validate(model_path, data_path=None):
+def validate(model_path, data_path=None, baseline_only=False, improved_only=False):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
     # 1. Detect Dataset
@@ -67,8 +67,8 @@ def validate(model_path, data_path=None):
     # 3. Setup Dataset
     test_dir = data_path if data_path else 'MSTbic_Project_Archive/SuperResolutionMultiscaleTraining/dependencies/KAIR/testsets/set5'
     if not os.path.exists(test_dir):
-        # Fallback to current dir if Kaggle structure varies
-        test_dir = '/kaggle/input/datasets/chenqizhou/set5-hr-lr/Set5/HR' if 'kaggle' in os.getcwd() else test_dir
+        # Fallback for kaggle
+        test_dir = '/kaggle/input/datasets/chenqizhou/set5-hr-lr/Set5/HR' if os.path.exists('/kaggle/input/datasets/chenqizhou/set5-hr-lr/Set5/HR') else test_dir
     
     hr_files = sorted([f for f in os.listdir(test_dir) if f.lower().endswith(('.png', '.jpg', '.bmp'))])
     if not hr_files and os.path.exists(os.path.join(test_dir, 'HR')):
@@ -79,156 +79,95 @@ def validate(model_path, data_path=None):
         print(f"Error: No images found in {test_dir}")
         return
 
-    # 4. SMART CALIBRATION (Find best preprocessing for these weights)
-    print("🔍 Calibrating model logic for peak performance...")
+    # 4. SMART CALIBRATION
+    print("🔍 Calibrating model logic... (Input Scale / Color Space / Mean-Shift)")
     cal_file = os.path.join(test_dir, hr_files[0])
-    cal_img = cv2.imread(cal_file)
-    cal_hr = cv2.cvtColor(cal_img, cv2.COLOR_BGR2RGB)
-    h, w, _ = cal_hr.shape
-    cal_hr = cal_hr[:h-(h%4), :w-(w%4), :]
-    cal_lr_bgr = cv2.resize(cal_img[:h-(h%4), :w-(w%4), :], (cal_hr.shape[1]//4, cal_hr.shape[0]//4), interpolation=cv2.INTER_CUBIC)
+    cal_img_bgr = cv2.imread(cal_file)
+    h, w, _ = cal_img_bgr.shape
+    cal_hr_rgb = cv2.cvtColor(cal_img_bgr[:h-(h%4), :w-(w%4), :], cv2.COLOR_BGR2RGB)
+    cal_lr_bgr = cv2.resize(cal_img_bgr[:h-(h%4), :w-(w%4), :], (cal_hr_rgb.shape[1]//4, cal_hr_rgb.shape[0]//4), interpolation=cv2.INTER_CUBIC)
     
     best_psnr = 0
-    best_config = {"mean": False, "bgr": False}
-    
-    # Standard DIV2K Mean
+    best_cfg = {"mean": False, "bgr": False, "scale": 1.0}
     mean = torch.Tensor([0.4488, 0.4371, 0.4040]).view(1, 3, 1, 1).to(device)
+    
+    model_to_cal = model_b if (baseline_only and model_b) else model_i
     
     for use_bgr in [False, True]:
         for use_mean in [False, True]:
-            # Simple test on Improved Model
-            lr = cal_lr_bgr if use_bgr else cv2.cvtColor(cal_lr_bgr, cv2.COLOR_BGR2RGB)
-            t = torch.from_numpy(lr.copy()).permute(2, 0, 1).float().unsqueeze(0) / 255.0
+            for in_scale in [1.0, 255.0]: # Standard vs KAIR range
+                lr = cal_lr_bgr if use_bgr else cv2.cvtColor(cal_lr_bgr, cv2.COLOR_BGR2RGB)
+                t = torch.from_numpy(lr.copy()).permute(2, 0, 1).float().unsqueeze(0) * (in_scale / 255.0)
+                t = t.to(device)
+                if use_mean: t = t - (mean * in_scale)
+                
+                with torch.no_grad():
+                    sr_t = model_to_cal(t)
+                    if use_mean: sr_t = sr_t + (mean * in_scale)
+                    sr = (sr_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * (255.0 / in_scale)).clip(0, 255).astype(np.uint8)
+                    p = calculate_psnr(sr, cal_hr_rgb if not use_bgr else cal_img_bgr[:h-(h%4), :w-(w%4), :])
+                    if p > best_psnr:
+                        best_psnr = p
+                        best_cfg = {"mean": use_mean, "bgr": use_bgr, "scale": in_scale}
+    
+    print(f"✅ Calibration Result: Scale={best_cfg['scale']}, Mean-Shift={best_cfg['mean']}, BGR={best_cfg['bgr']}")
+    
+    # 5. Full Evaluation
+    psnrs_i = []
+    psnrs_b = []
+    
+    run_i = not baseline_only
+    run_b = (model_b is not None) and (not improved_only)
+    
+    msg = "Side-by-Side" if (run_i and run_b) else ("Improved Only" if run_i else "Baseline Only")
+    print(f"\n🎯 Running {msg} Benchmark (Dataset: {ds_name.upper()})")
+    print("-" * 65)
+    
+    for hr_file in hr_files:
+        hr_path = os.path.join(test_dir, hr_file)
+        img_bgr = cv2.imread(hr_path)
+        h, w, _ = img_bgr.shape
+        img_bgr = img_bgr[:h-(h%4), :w-(w%4), :]
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        lr_bgr = cv2.resize(img_bgr, (img_bgr.shape[1]//4, img_bgr.shape[0]//4), interpolation=cv2.INTER_CUBIC)
+        lr_rgb = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB)
+        
+        def process(model, img, cfg):
+            t = torch.from_numpy(img.copy()).permute(2, 0, 1).float().unsqueeze(0) * (cfg['scale'] / 255.0)
             t = t.to(device)
-            if use_mean: t = t - mean
-            
+            if cfg['mean']: t = t - (mean * cfg['scale'])
             with torch.no_grad():
-                sr_t = model_i(t)
-                if use_mean: sr_t = sr_t + mean
-                sr = (sr_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-                p = calculate_psnr(sr, cal_hr if not use_bgr else cal_img[:h-(h%4), :w-(w%4), :])
-                if p > best_psnr:
-                    best_psnr = p
-                    best_config = {"mean": use_mean, "bgr": use_bgr}
-    
-    print(f"✅ Calibration Complete! Best Config: Mean-Shift={best_config['mean']}, BGR-Mode={best_config['bgr']}")
-    print(f"📊 Initial Calibration PSNR: {best_psnr:.2f} dB\n")
+                sr_t = model(t)
+                if cfg['mean']: sr_t = sr_t + (mean * cfg['scale'])
+                return (sr_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * (255.0 / cfg['scale'])).clip(0, 255).astype(np.uint8)
 
-    # 5. Run Full Benchmark
-    psnrs_i = []
-    psnrs_b = []
-    print(f"🎯 Running Official Side-by-Side (Dataset: {ds_name.upper()})")
-    print("-" * 65)
-    
-    for hr_file in hr_files:
-        hr_path = os.path.join(test_dir, hr_file)
-        img_bgr = cv2.imread(hr_path)
-        h, w, _ = img_bgr.shape
-        img_bgr = img_bgr[:h-(h%4), :w-(w%4), :]
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        if run_i:
+            sr_i = process(model_i, lr_bgr if best_cfg['bgr'] else lr_rgb, best_cfg)
+            p_i = calculate_psnr(sr_i, img_bgr if best_cfg['bgr'] else img_rgb)
+            psnrs_i.append(p_i)
         
-        lr_bgr = cv2.resize(img_bgr, (img_bgr.shape[1]//4, img_bgr.shape[0]//4), interpolation=cv2.INTER_CUBIC)
-        lr_rgb = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB)
-        
-        # Prepare Tensors
-        def prepare(img, conf):
-            t = torch.from_numpy(img.copy()).permute(2, 0, 1).float().unsqueeze(0) / 255.0
-            t = t.to(device)
-            if conf['mean']: t = t - mean
-            return t
-        
-        t_i = prepare(lr_bgr if best_config['bgr'] else lr_rgb, best_config)
-        t_b = prepare(lr_bgr, {"mean": True, "bgr": True}) # Baseline is almost always Mean-Shift BGR
-        
-        with torch.no_grad():
-            # Improved
-            sr_i_t = model_i(t_i)
-            if best_config['mean']: sr_i_t = sr_i_t + mean
-            sr_i = (sr_i_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-            psnr_i = calculate_psnr(sr_i, img_bgr if best_config['bgr'] else img_rgb)
-            psnrs_i.append(psnr_i)
-
-            # Baseline
-            if model_b:
-                sr_b_t = model_b(t_b)
-                sr_b_t = sr_b_t + mean # Baseline always needs mean for SOTA results
-                sr_b = (sr_b_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-                # Compare in BGR if weights are BGR
-                psnr_b = calculate_psnr(sr_b, img_bgr)
-                psnrs_b.append(psnr_b)
-            else: psnr_b = sota_target
-
-        b_str = f"{psnr_b:>10.2f} dB" if model_b else "   (Paper Ref) "
-        print(f"{hr_file[:15]:<15} | {b_str} | {psnr_i:>10.2f} dB | +{psnr_i - (psnr_b if model_b else sota_target):>.2f}")
-
-    # 5. Run Full Benchmark
-    psnrs_i = []
-    psnrs_b = []
-    
-    run_i = not args.baseline_only
-    run_b = (model_b is not None) and (not args.improved_only)
-    
-    mode_str = "Side-by-Side" if (run_i and run_b) else ("Improved Only" if run_i else "Baseline Only")
-    print(f"🎯 Running {mode_str} Benchmark (Dataset: {ds_name.upper()})")
-    print("-" * 65)
-    
-    for hr_file in hr_files:
-        hr_path = os.path.join(test_dir, hr_file)
-        img_bgr = cv2.imread(hr_path)
-        h, w, _ = img_bgr.shape
-        img_bgr = img_bgr[:h-(h%4), :w-(w%4), :]
-        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-        
-        lr_bgr = cv2.resize(img_bgr, (img_bgr.shape[1]//4, img_bgr.shape[0]//4), interpolation=cv2.INTER_CUBIC)
-        lr_rgb = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB)
-        
-        def prepare(img, conf):
-            t = torch.from_numpy(img.copy()).permute(2, 0, 1).float().unsqueeze(0) / 255.0
-            t = t.to(device)
-            if conf['mean']: t = t - mean
-            return t
-        
-        with torch.no_grad():
-            # Improved
-            psnr_i = 0
-            if run_i:
-                t_i = prepare(lr_bgr if best_config['bgr'] else lr_rgb, best_config)
-                sr_i_t = model_i(t_i)
-                if best_config['mean']: sr_i_t = sr_i_t + mean
-                sr_i = (sr_i_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-                psnr_i = calculate_psnr(sr_i, img_bgr if best_config['bgr'] else img_rgb)
-                psnrs_i.append(psnr_i)
-
-            # Baseline
-            psnr_b = 0
-            if run_b:
-                t_b = prepare(lr_bgr, {"mean": True, "bgr": True})
-                sr_b_t = model_b(t_b)
-                sr_b_t = sr_b_t + mean
-                sr_b = (sr_b_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-                psnr_b = calculate_psnr(sr_b, img_bgr)
-                psnrs_b.append(psnr_b)
-            else: psnr_b = sota_target
+        if run_b:
+            # Baseline calibration (usually Mean=True, BGR=True, Scale=1.0 for SSIU)
+            sr_b = process(model_b, lr_bgr, {"mean": True, "bgr": True, "scale": 1.0})
+            p_b = calculate_psnr(sr_b, img_bgr)
+            psnrs_b.append(p_b)
+        else: p_b = sota_target
 
         if run_i and run_b:
-            b_str = f"{psnr_b:>10.2f} dB"
-            print(f"{hr_file[:15]:<15} | {b_str} | {psnr_i:>10.2f} dB | +{psnr_i - psnr_b:>.2f}")
+            print(f"{hr_file[:15]:<15} | {p_b:>10.2f} dB | {p_i:>10.2f} dB | +{p_i - p_b:>.2f}")
         elif run_i:
-            print(f"{hr_file[:15]:<15} | Improved PSNR: {psnr_i:>10.2f} dB")
+            print(f"{hr_file[:15]:<15} | Improved PSNR: {p_i:>10.2f} dB")
         else:
-            print(f"{hr_file[:15]:<15} | Baseline PSNR: {psnr_b:>10.2f} dB")
+            print(f"{hr_file[:15]:<15} | Baseline PSNR: {p_b:>10.2f} dB")
 
     avg_i = np.mean(psnrs_i) if run_i else 0
-    avg_b = np.mean(psnrs_b) if run_b else sota_target
+    avg_b = (np.mean(psnrs_b) if run_b else sota_target)
     
-    print("\n" + "="*45)
-    print(f"📊 {ds_name.upper()} FINAL SUMMARY")
+    print(f"\n{'='*45}\n📊 {ds_name.upper()} FINAL SUMMARY")
     if run_b or (not run_i): print(f"Official Baseline: {avg_b:.2f} dB")
     if run_i: print(f"Our Improved:      {avg_i:.2f} dB")
     if run_i and run_b: print(f"FINAL DELTA:       +{avg_i - avg_b:.2f} dB")
-    
-    if run_i and avg_i >= avg_b:
-        print(f"STATUS: 🏆 BEAT SOTA!")
+    if run_i and avg_i >= avg_b: print("STATUS: 🏆 BEAT SOTA!")
     print("="*45 + "\n")
 
 if __name__ == "__main__":
@@ -239,4 +178,4 @@ if __name__ == "__main__":
     parser.add_argument('--baseline_only', action='store_true')
     parser.add_argument('--improved_only', action='store_true')
     args = parser.parse_args()
-    validate(args.model_path, args.data_path)
+    validate(args.model_path, args.data_path, args.baseline_only, args.improved_only)
