@@ -161,9 +161,74 @@ def validate(model_path, data_path=None):
         b_str = f"{psnr_b:>10.2f} dB" if model_b else "   (Paper Ref) "
         print(f"{hr_file[:15]:<15} | {b_str} | {psnr_i:>10.2f} dB | +{psnr_i - (psnr_b if model_b else sota_target):>.2f}")
 
-    avg_i, avg_b = np.mean(psnrs_i), (np.mean(psnrs_b) if model_b else sota_target)
-    print(f"\n{'='*45}\n📊 {ds_name.upper()} FINAL SUMMARY\nOfficial Baseline: {avg_b:.2f} dB\nOur Improved:      {avg_i:.2f} dB\nFINAL DELTA:       +{avg_i - avg_b:.2f} dB")
-    if avg_i >= avg_b: print("STATUS: 🏆 BEAT SOTA!")
+    # 5. Run Full Benchmark
+    psnrs_i = []
+    psnrs_b = []
+    
+    run_i = not args.baseline_only
+    run_b = (model_b is not None) and (not args.improved_only)
+    
+    mode_str = "Side-by-Side" if (run_i and run_b) else ("Improved Only" if run_i else "Baseline Only")
+    print(f"🎯 Running {mode_str} Benchmark (Dataset: {ds_name.upper()})")
+    print("-" * 65)
+    
+    for hr_file in hr_files:
+        hr_path = os.path.join(test_dir, hr_file)
+        img_bgr = cv2.imread(hr_path)
+        h, w, _ = img_bgr.shape
+        img_bgr = img_bgr[:h-(h%4), :w-(w%4), :]
+        img_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
+        
+        lr_bgr = cv2.resize(img_bgr, (img_bgr.shape[1]//4, img_bgr.shape[0]//4), interpolation=cv2.INTER_CUBIC)
+        lr_rgb = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB)
+        
+        def prepare(img, conf):
+            t = torch.from_numpy(img.copy()).permute(2, 0, 1).float().unsqueeze(0) / 255.0
+            t = t.to(device)
+            if conf['mean']: t = t - mean
+            return t
+        
+        with torch.no_grad():
+            # Improved
+            psnr_i = 0
+            if run_i:
+                t_i = prepare(lr_bgr if best_config['bgr'] else lr_rgb, best_config)
+                sr_i_t = model_i(t_i)
+                if best_config['mean']: sr_i_t = sr_i_t + mean
+                sr_i = (sr_i_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+                psnr_i = calculate_psnr(sr_i, img_bgr if best_config['bgr'] else img_rgb)
+                psnrs_i.append(psnr_i)
+
+            # Baseline
+            psnr_b = 0
+            if run_b:
+                t_b = prepare(lr_bgr, {"mean": True, "bgr": True})
+                sr_b_t = model_b(t_b)
+                sr_b_t = sr_b_t + mean
+                sr_b = (sr_b_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+                psnr_b = calculate_psnr(sr_b, img_bgr)
+                psnrs_b.append(psnr_b)
+            else: psnr_b = sota_target
+
+        if run_i and run_b:
+            b_str = f"{psnr_b:>10.2f} dB"
+            print(f"{hr_file[:15]:<15} | {b_str} | {psnr_i:>10.2f} dB | +{psnr_i - psnr_b:>.2f}")
+        elif run_i:
+            print(f"{hr_file[:15]:<15} | Improved PSNR: {psnr_i:>10.2f} dB")
+        else:
+            print(f"{hr_file[:15]:<15} | Baseline PSNR: {psnr_b:>10.2f} dB")
+
+    avg_i = np.mean(psnrs_i) if run_i else 0
+    avg_b = np.mean(psnrs_b) if run_b else sota_target
+    
+    print("\n" + "="*45)
+    print(f"📊 {ds_name.upper()} FINAL SUMMARY")
+    if run_b or (not run_i): print(f"Official Baseline: {avg_b:.2f} dB")
+    if run_i: print(f"Our Improved:      {avg_i:.2f} dB")
+    if run_i and run_b: print(f"FINAL DELTA:       +{avg_i - avg_b:.2f} dB")
+    
+    if run_i and avg_i >= avg_b:
+        print(f"STATUS: 🏆 BEAT SOTA!")
     print("="*45 + "\n")
 
 if __name__ == "__main__":
@@ -171,5 +236,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument('--model_path', type=str, default="ssiu-div2k.pth")
     parser.add_argument('--data_path', type=str, default=None)
+    parser.add_argument('--baseline_only', action='store_true')
+    parser.add_argument('--improved_only', action='store_true')
     args = parser.parse_args()
     validate(args.model_path, args.data_path)
