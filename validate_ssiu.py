@@ -4,22 +4,10 @@ import numpy as np
 import os
 import sys
 
-# Import both architectures
+# Import architectures from local root
 from ssiu_improved import ImprovedSSIUNet
-
-# Add SSIU models to path to import the official architecture if present
-# We check both the root and the SSIU folder
-possible_ssiu_paths = [
-    os.path.join(os.getcwd(), 'SSIU'),
-    os.path.join(os.getcwd(), 'archive_v3_restoration')
-]
-for p in possible_ssiu_paths:
-    if os.path.exists(p):
-        sys.path.append(p)
-        break
-
 try:
-    from models.SSUFSR_network import SSUFSRNet
+    from ssiu_official import SSUFSRNet
     BASELINE_AVAILABLE = True
 except ImportError:
     BASELINE_AVAILABLE = False
@@ -48,6 +36,36 @@ def calculate_psnr(img1, img2):
 
 def validate(model_path, data_path=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
+    
+    # 1. Detect Dataset and SOTA Target
+    ds_name = "set5" # Default
+    if data_path:
+        path_lower = data_path.lower()
+        for key in SOTA_BENCHMARKS:
+            if key in path_lower:
+                ds_name = key
+                break
+    sota_target = SOTA_BENCHMARKS.get(ds_name, 32.64)
+    print(f"🚀 Running Live Benchmark (Dataset: {ds_name.upper()} | Device: {device})")
+    
+    # 2. Setup Baseline
+    model_b = None
+    baseline_weights = "pretrain_model/model_x4_290.pt"
+    
+    if BASELINE_AVAILABLE and os.path.exists(baseline_weights):
+        print(f"✅ Found Local Baseline Weights. Running LIVE comparison.")
+        try:
+            model_b = SSUFSRNet(BaselineArgs(scale=4)).to(device)
+            model_b.load_state_dict(torch.load(baseline_weights, map_location=device))
+            model_b.eval()
+        except Exception as e:
+            print(f"⚠️ Baseline init error: {e}. Falling back to paper reference.")
+            model_b = None
+    else:
+        print(f"⚠️ Using Paper Reference ({sota_target} dB) for baseline.")
+        # Debug
+        if not BASELINE_AVAILABLE: print("   (ssiu_official.py missing or einops not installed)")
+        if not os.path.exists(baseline_weights): print(f"   ({baseline_weights} missing)")
     
     # 1. Detect Dataset and SOTA Target
     ds_name = "set5" # Default
