@@ -30,11 +30,22 @@ class BaselineArgs:
         self.n_blocks = 10
         self.colors = 3
 
-def calculate_psnr(img1, img2):
-    mse = np.mean((img1.astype(np.float64) - img2.astype(np.float64)) ** 2)
+def calculate_psnr(img1, img2, border=4):
+    if img1.shape != img2.shape: return 0
+    img1 = img1.astype(np.float64)
+    img2 = img2.astype(np.float64)
+    
+    # Academic Standard: PSNR on Y-channel of YCbCr (BT.601)
+    y1 = 16.0 + (65.481 * img1[..., 0] + 128.553 * img1[..., 1] + 24.966 * img1[..., 2]) / 255.0
+    y2 = 16.0 + (65.481 * img2[..., 0] + 128.553 * img2[..., 1] + 24.966 * img2[..., 2]) / 255.0
+    
+    # Shave borders to avoid boundary artifacts (standard for x4 SR)
+    y1 = y1[border:-border, border:-border]
+    y2 = y2[border:-border, border:-border]
+    
+    mse = np.mean((y1 - y2) ** 2)
     if mse == 0: return 100
-    PIXEL_MAX = 255.0
-    return 20 * np.log10(PIXEL_MAX / np.sqrt(mse))
+    return 20 * np.log10(255.0 / np.sqrt(mse))
 
 def validate(model_path, data_path=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
