@@ -26,24 +26,34 @@ def benchmark_efficiency(upscale=4, iterations=100, warm_up=10):
             _ = model(lr_input)
     
     # 5. MEASURE GPU MEMORY
-    torch.cuda.reset_peak_memory_stats()
-    with torch.no_grad():
-        _ = model(lr_input)
-    peak_mem = torch.cuda.max_memory_allocated() / (1024 * 1024) # MB
+    peak_mem = 0
+    if torch.cuda.is_available():
+        torch.cuda.reset_peak_memory_stats()
+        with torch.no_grad():
+            _ = model(lr_input)
+        peak_mem = torch.cuda.max_memory_allocated() / (1024 * 1024) # MB
     
     # 6. MEASURE INFERENCE TIME
     print(f"Measuring average time over {iterations} iterations...")
-    starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
-    timings = np.zeros((iterations, 1))
+    timings = []
     
-    with torch.no_grad():
-        for rep in range(iterations):
-            starter.record()
-            _ = model(lr_input)
-            ender.record()
-            torch.cuda.synchronize()
-            curr_time = starter.elapsed_time(ender)
-            timings[rep] = curr_time
+    if torch.cuda.is_available():
+        starter, ender = torch.cuda.Event(enable_timing=True), torch.cuda.Event(enable_timing=True)
+        with torch.no_grad():
+            for _ in range(iterations):
+                starter.record()
+                _ = model(lr_input)
+                ender.record()
+                torch.cuda.synchronize()
+                timings.append(starter.elapsed_time(ender))
+    else:
+        # Fallback for CPU
+        for _ in range(iterations):
+            start = time.perf_counter()
+            with torch.no_grad():
+                _ = model(lr_input)
+            end = time.perf_counter()
+            timings.append((end - start) * 1000) # ms
             
     avg_time = np.mean(timings)
     std_time = np.std(timings)
@@ -52,9 +62,13 @@ def benchmark_efficiency(upscale=4, iterations=100, warm_up=10):
     print("\n" + "="*30)
     print("📊 BENCHMARK RESULTS (TABLE II)")
     print(f"Model: SSIU-V2 (SSIU-FA)")
+    print(f"Device: {device}")
     print(f"Input: 480x320 -> Output: 1920x1280 (x4)")
     print(f"Average Time: {avg_time:.2f} ms (±{std_time:.2f} ms)")
-    print(f"Peak GPU Mem: {peak_mem:.2f} MB")
+    if torch.cuda.is_available():
+        print(f"Peak GPU Mem: {peak_mem:.2f} MB")
+    else:
+        print(f"Memory: N/A (Run on GPU for memory stats)")
     print("="*30)
 
 if __name__ == "__main__":
