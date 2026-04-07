@@ -59,24 +59,33 @@ def validate(model_path, data_path=None):
                 break
     sota_target = SOTA_BENCHMARKS.get(ds_name, 32.64)
     print(f"🚀 Running Live Benchmark (Dataset: {ds_name.upper()} | Device: {device})")
+    print(f"📂 Searching in: {os.getcwd()}")
     
     # 2. Live Discovery of Baseline
     model_b = None
     baseline_available = False
     baseline_weights = None
     
+    # Check for empty submodule
+    if os.path.exists('SSIU') and not os.listdir('SSIU'):
+        print("⚠️ Warning: 'SSIU' folder exists but is EMPTY. (Missing submodule update?)")
+    
     # Recursively find the network file
     import glob
     net_matches = glob.glob("**/SSUFSR_network.py", recursive=True)
     if net_matches:
-        net_dir = os.path.dirname(os.path.dirname(os.path.abspath(net_matches[0])))
+        # Get the directory that contains the 'models' folder
+        net_path = os.path.abspath(net_matches[0])
+        net_dir = os.path.dirname(os.path.dirname(net_path))
         if net_dir not in sys.path:
-            sys.path.append(net_dir)
+            sys.path.insert(0, net_dir)
         try:
             from models.SSUFSR_network import SSUFSRNet
             baseline_available = True
         except ImportError as e:
             print(f"⚠️ Baseline dependency missing: {e}. Try: !pip install einops")
+        except Exception as e:
+            print(f"⚠️ Baseline arch error: {e}")
 
     # Recursively find weights
     weight_matches = glob.glob("**/model_x4_290.pt", recursive=True)
@@ -94,7 +103,7 @@ def validate(model_path, data_path=None):
     
     # Baseline Model (Live)
     if baseline_available and baseline_weights:
-        print(f"✅ Found Baseline weights at: {baseline_weights}")
+        print(f"✅ Found Baseline: {baseline_weights}")
         try:
             model_b = SSUFSRNet(BaselineArgs(scale=4)).to(device)
             model_b.load_state_dict(torch.load(baseline_weights, map_location=device))
