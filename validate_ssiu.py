@@ -28,13 +28,25 @@ def validate(model_path, data_path=None):
         print(f"Error: Test directory {test_dir} not found!")
         return
 
-    hr_paths = sorted([os.path.join(test_dir, f) for f in os.listdir(test_dir) if f.endswith(('.png', '.jpg', '.bmp'))])
+    hr_files = sorted([f for f in os.listdir(test_dir) if f.lower().endswith(('.png', '.jpg', '.bmp'))])
+    
+    # SMART FIX: If no images found, check if there's an 'HR' subfolder
+    if not hr_files:
+        hr_subfolder = os.path.join(test_dir, 'HR')
+        if os.path.exists(hr_subfolder):
+            test_dir = hr_subfolder
+            hr_files = sorted([f for f in os.listdir(test_dir) if f.lower().endswith(('.png', '.jpg', '.bmp'))])
+    
+    if not hr_files:
+        print(f"Error: No images found in {test_dir} (Checked .png, .jpg, .bmp)")
+        return
     
     psnrs = []
     print(f"\n--- VALIDATING FINAL SSIU-FA (2026) VS 2025 NTIRE SOTA ---")
     print(f"Testing on: {test_dir}")
     
-    for hr_path in hr_paths:
+    for hr_file in hr_files:
+        hr_path = os.path.join(test_dir, hr_file)
         hr = cv2.imread(hr_path)
         hr = cv2.cvtColor(hr, cv2.COLOR_BGR2RGB)
         
