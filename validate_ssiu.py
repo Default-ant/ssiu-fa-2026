@@ -24,7 +24,7 @@ SOTA_BENCHMARKS = {
 class BaselineArgs:
     def __init__(self, scale=4):
         self.scale = scale
-        self.n_feats = 16
+        self.n_feats = 64
         self.n_blocks = 10
         self.colors = 3
 
