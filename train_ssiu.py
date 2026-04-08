@@ -62,7 +62,7 @@ def train(iterations=50000, data_path=None, resume_path=None):
     
     # Matching Verified Baseline architecture: 9 blocks, 64 features
     model = ImprovedSSIUNet(upscale=4).to(device)
-    scaler = GradScaler()
+    scaler = torch.amp.GradScaler('cuda')
     
     if resume_path and os.path.exists(resume_path):
         print(f"Resuming from {resume_path}...")
@@ -89,7 +89,7 @@ def train(iterations=50000, data_path=None, resume_path=None):
         lr, hr = lr.to(device), hr.to(device)
         
         optimizer.zero_grad()
-        with autocast():
+        with torch.amp.autocast('cuda'):
             sr = model(lr)
             loss = criterion(sr, hr)
         
