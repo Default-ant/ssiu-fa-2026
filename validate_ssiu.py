@@ -2,6 +2,7 @@ import torch
 import cv2
 import numpy as np
 import os
+from PIL import Image
 
 # Import architectures
 from ssiu_improved import ImprovedSSIUNet
@@ -32,69 +33,67 @@ def load_weights(model, path):
 def validate(model_path, data_path):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
     
-    # 1. Models
+    # 1. Models (VERIFIED: 9 Blocks, 64 Features)
+    from collections import namedtuple
+    Args = namedtuple('Args', ['scale', 'n_feats', 'n_blocks', 'colors'])
+    
     model_i = ImprovedSSIUNet(upscale=4).to(device)
     load_weights(model_i, model_path)
     model_i.eval()
     
     model_b = None
     if BASELINE_AVAILABLE:
-        from collections import namedtuple
-        Args = namedtuple('Args', ['scale', 'n_feats', 'n_blocks', 'colors'])
-        model_b = SSUFSRNet(Args(4, 64, 10, 3)).to(device)
+        model_b = SSUFSRNet(Args(4, 64, 9, 3)).to(device)
         load_weights(model_b, "pretrain_model/model_x4_290.pt")
         model_b.eval()
 
-    # 2. Find Images
-    hr_dir = data_path
-    if not os.path.exists(hr_dir): return
-    
-    # Simple recursive search for images
+    # 2. Find Images (Targeting X4 specifically)
     hr_paths = []
-    for root, _, files in os.walk(hr_dir):
-        for f in files:
-            if f.lower().endswith(('.png', '.jpg', '.bmp')):
-                hr_paths.append(os.path.join(root, f))
-    hr_paths = sorted(hr_paths)
+    for root, _, files in os.walk(data_path):
+        # Academic standard: Test on HR vs Bilinear-upsampled LR
+        if "HR" in root or "set5" in root.lower():
+            for f in files:
+                if f.lower().endswith(('.png', '.jpg')) and "LR" not in root:
+                    hr_paths.append(os.path.join(root, f))
     
+    hr_paths = sorted(list(set(hr_paths)))
     if not hr_paths:
-        print(f"Error: No images found in {hr_dir}")
+        print(f"Error: No images found in {data_path}")
         return
 
-    # DIV2K Mean
-    mean = torch.Tensor([0.4488, 0.4371, 0.4040]).view(1, 3, 1, 1).to(device)
-    
-    print(f"🎯 Benchmark Start | Images: {len(hr_paths)} | Device: {device}")
+    print(f"🎯 SOTA Benchmark | Verified Baseline (9-block) | Scale: X4")
     print("-" * 65)
     
     psnrs_i, psnrs_b = [], []
     for p in hr_paths:
-        img = cv2.imread(p)
-        h, w, _ = img.shape
-        img = img[:h-(h%4), :w-(w%4), :]
-        hr_rgb = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
+        img_bgr = cv2.imread(p)
+        h, w, _ = img_bgr.shape
+        img_bgr = img_bgr[:h-(h%4), :w-(w%4), :]
+        hr_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
         
-        lr_bgr = cv2.resize(img, (w//4, h//4), interpolation=cv2.INTER_CUBIC)
-        lr_rgb = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB)
+        # High-Quality Alignment: PIL Bicubic
+        lr_pil = Image.fromarray(hr_rgb).resize((w//4, h//4), resample=Image.BICUBIC)
+        lr_rgb = np.array(lr_pil)
+        lr_bgr = cv2.cvtColor(lr_rgb, cv2.COLOR_RGB2BGR)
         
         with torch.no_grad():
-            # Improved (RGB, 0-1)
+            # Improved Model (RGB)
             t_i = torch.from_numpy(lr_rgb.copy()).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0
             sr_i = (model_i(t_i).squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
             pi = calculate_psnr(sr_i, hr_rgb)
             psnrs_i.append(pi)
             
-            # Baseline (BGR, Mean-Shift, 0-1)
+            # Baseline Model (BGR, No Mean-Shift as verified)
             pb = 0
             if model_b:
-                t_b = (torch.from_numpy(lr_bgr.copy()).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0) - mean
-                sr_b = ((model_b(t_b) + mean).squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+                t_b = torch.from_numpy(lr_bgr.copy()).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0
+                sr_b = (model_b(t_b).squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
                 pb = calculate_psnr(cv2.cvtColor(sr_b, cv2.COLOR_BGR2RGB), hr_rgb)
                 psnrs_b.append(pb)
 
-        print(f"{os.path.basename(p)[:15]:<15} | Base: {pb:.2f} dB | Ours: {pi:.2f} dB")
+        print(f"{os.path.basename(p)[:12]:<12} | Base: {pb:.2f} dB | Ours: {pi:.2f} dB | Diff: {pi-pb:+.2f}")
 
-    print(f"\n✅ SUMMARY | Baseline: {np.mean(psnrs_b):.2f} dB | Ours: {np.mean(psnrs_i):.2f} dB")
+    print(f"\n✅ FINAL | Baseline: {np.mean(psnrs_b):.2f} dB | Ours: {np.mean(psnrs_i):.2f} dB")
 
 if __name__ == "__main__":
     import argparse

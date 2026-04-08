@@ -12,26 +12,19 @@ from ssiu_improved import ImprovedSSIUNet
 class DIV2KSOTADataset(Dataset):
     def __init__(self, data_path=None, upscale=4, patch_size=64):
         super().__init__()
-        # Standard DIV2K Kaggle path if not provided
         self.target_dir = data_path if data_path else '/kaggle/input/datasets/harshraone/div2k-dataset/DIV2K_train_HR/DIV2K_train_HR'
-        
-        self.hr_images = []
+        self.file_list = []
         if os.path.exists(self.target_dir):
-            self.file_list = sorted([os.path.join(self.target_dir, f) for f in os.listdir(self.target_dir) if f.endswith(('.png', '.jpg', '.bmp'))])
-            print(f"Loading {len(self.file_list)} high-res images from {self.target_dir}... 🖼️")
-        else:
-            print(f"Error: Path {self.target_dir} not found!")
-            self.file_list = []
-
+            self.file_list = sorted([os.path.join(self.target_dir, f) for f in os.listdir(self.target_dir) if f.endswith(('.png', '.jpg'))])
+            print(f"Loading {len(self.file_list)} images for SOTA training... 🖼️")
+        
         self.upscale = upscale
         self.patch_size = patch_size
-        self.mean = np.array([0.4488, 0.4371, 0.4040]).reshape(1, 1, 3) # DIV2K Mean
 
     def __len__(self):
         return len(self.file_list)
 
     def __getitem__(self, idx):
-        # Lazy loading to save RAM on DIV2K
         hr = cv2.imread(self.file_list[idx])
         hr = cv2.cvtColor(hr, cv2.COLOR_BGR2RGB)
         h, w, _ = hr.shape
@@ -41,7 +34,7 @@ class DIV2KSOTADataset(Dataset):
         y = np.random.randint(0, h - p_hr)
         hr_crop = hr[y : y + p_hr, x : x + p_hr]
         
-        # Augmentation
+        # Sota Augmentations
         aug = np.random.randint(0, 8)
         if aug == 1: hr_crop = np.flipud(hr_crop)
         elif aug == 2: hr_crop = np.fliplr(hr_crop)
@@ -51,10 +44,8 @@ class DIV2KSOTADataset(Dataset):
         
         lr_crop = cv2.resize(hr_crop, (self.patch_size, self.patch_size), interpolation=cv2.INTER_CUBIC)
         
-        # Normalize with DIV2K Mean
-        hr_t = (torch.from_numpy(hr_crop.copy()).permute(2, 0, 1).float() / 255.0)
-        lr_t = (torch.from_numpy(lr_crop.copy()).permute(2, 0, 1).float() / 255.0)
-        
+        hr_t = torch.from_numpy(hr_crop.copy()).permute(2, 0, 1).float() / 255.0
+        lr_t = torch.from_numpy(lr_crop.copy()).permute(2, 0, 1).float() / 255.0
         return lr_t, hr_t
 
 class CharbonnierLoss(nn.Module):
@@ -67,13 +58,14 @@ class CharbonnierLoss(nn.Module):
 
 def train(iterations=50000, data_path=None, resume_path=None):
     device = torch.device('cuda' if torch.cuda.is_available() else 'cpu')
-    print(f"--- STARTING SOTA DIV2K TRAINING ({iterations} Iterations) ---")
+    print(f"--- STARTING FINAL SOTA RUN ({iterations} Iterations) ---")
     
+    # Matching Verified Baseline architecture: 9 blocks, 64 features
     model = ImprovedSSIUNet(upscale=4).to(device)
-    scaler = GradScaler() # For mixed precision
+    scaler = GradScaler()
     
     if resume_path and os.path.exists(resume_path):
-        print(f"Loading weights from {resume_path}... 📂")
+        print(f"Resuming from {resume_path}...")
         model.load_state_dict(torch.load(resume_path, map_location=device))
     
     optimizer = optim.Adam(model.parameters(), lr=1e-4, betas=(0.9, 0.999))
@@ -82,7 +74,7 @@ def train(iterations=50000, data_path=None, resume_path=None):
     
     dataset = DIV2KSOTADataset(data_path=data_path, upscale=4, patch_size=64)
     if len(dataset) == 0: return
-    dataloader = DataLoader(dataset, batch_size=16, shuffle=True, num_workers=4, pin_memory=True)
+    dataloader = DataLoader(dataset, batch_size=32, shuffle=True, num_workers=4, pin_memory=True)
     
     model.train()
     loader_iter = iter(dataloader)
@@ -97,8 +89,7 @@ def train(iterations=50000, data_path=None, resume_path=None):
         lr, hr = lr.to(device), hr.to(device)
         
         optimizer.zero_grad()
-        
-        with autocast(): # Mixed precision for SPEED
+        with autocast():
             sr = model(lr)
             loss = criterion(sr, hr)
         
@@ -108,14 +99,14 @@ def train(iterations=50000, data_path=None, resume_path=None):
         scheduler.step()
         
         if i % 100 == 0:
-            print(f"🚀 [{i}/{iterations}] Loss: {loss.item():.5f} | LR: {scheduler.get_last_lr()[0]:.6f}")
+            print(f"🚀 Progress: {i}/{iterations} | Loss: {loss.item():.5f} | LR: {scheduler.get_last_lr()[0]:.6f}")
 
         if i % 5000 == 0 or i == iterations:
-            path = f"ssiu_v2_div2k_iter_{i}.pth"
+            path = f"ssiu_improved_sota_iter_{i}.pth"
             torch.save(model.state_dict(), path)
-            print(f"💾 Checkpoint saved: {path}")
+            print(f"💾 Checkpoint: {path}")
 
-    print(f"--- SOTA TRAINING COMPLETE ---")
+    print("--- SOTA TRAINING COMPLETE ---")
 
 if __name__ == "__main__":
     import argparse
