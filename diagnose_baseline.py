@@ -54,39 +54,48 @@ def run_diagnostics():
     lr_rgb = cv2.cvtColor(lr_bgr, cv2.COLOR_BGR2RGB)
 
     print(f"🕵️‍♂️ Starting Brute-Force Diagnostic on {os.path.basename(hr_path)}...")
-    print(f"{'BGR':<5} | {'Scale':<6} | {'Logic':<15} | {'PSNR'}")
-    print("-" * 45)
+    print(f"{'BGR':<5} | {'Mean':<5} | {'Scale':<6} | {'Logic':<15} | {'PSNR'}")
+    print("-" * 55)
+
+    mean = torch.Tensor([0.4488, 0.4371, 0.4040]).view(1, 3, 1, 1).to(device)
 
     with torch.no_grad():
         for use_bgr in [False, True]:
-            for in_scale in [1.0, 255.0]:
-                for logic in ["Standard", "Remove-Skip"]:
-                    # Prepare Input
-                    inp = lr_bgr if use_bgr else lr_rgb
-                    target = img_bgr if use_bgr else img_rgb
-                    
-                    t = torch.from_numpy(inp.copy()).permute(2, 0, 1).float().unsqueeze(0) * (in_scale / 255.0)
-                    t = t.to(device)
-                    
-                    # Run Forward
-                    out_t = model(t)
-                    
-                    # Logic: Standard (Model output) vs Remove-Skip (Model is adding skip, maybe don't want it?)
-                    if logic == "Remove-Skip":
-                        # Manually subtract the bilinear skip if it was added incorrectly
-                        skip = F.interpolate(t, scale_factor=4, mode='bilinear', align_corners=False)
-                        out_t = out_t - skip
-                    
-                    # Convert to SR image
-                    sr = (out_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * (255.0 / in_scale)).clip(0, 255).astype(np.uint8)
-                    
-                    psnr = calculate_psnr(sr, target)
-                    
-                    bgr_str = "YES" if use_bgr else "NO"
-                    print(f"{bgr_str:<5} | {in_scale:<6} | {logic:<15} | {psnr:.2f} dB")
-                    
-                    if psnr > 32:
-                        print(f"🎉 FOUND IT! Config: BGR={use_bgr}, Scale={in_scale}, Logic={logic}")
+            for use_mean in [False, True]:
+                for in_scale in [1.0, 255.0]:
+                    for logic in ["Standard", "Remove-Skip"]:
+                        # Prepare Input
+                        inp = lr_bgr if use_bgr else lr_rgb
+                        target = img_bgr if use_bgr else img_rgb
+                        
+                        t = torch.from_numpy(inp.copy()).permute(2, 0, 1).float().unsqueeze(0) * (in_scale / 255.0)
+                        t = t.to(device)
+                        
+                        # Apply Mean Shift
+                        if use_mean: t = t - (mean * in_scale)
+                        
+                        # Run Forward
+                        out_t = model(t)
+                        
+                        # Reverse Mean Shift if model doesn't already do it inside
+                        # (Most skip-connection models expect residue + input, so mean cancels out or must be added back)
+                        if use_mean: out_t = out_t + (mean * in_scale)
+                        
+                        if logic == "Remove-Skip":
+                            skip = F.interpolate(t if not use_mean else t + (mean * in_scale), 
+                                               scale_factor=4, mode='bilinear', align_corners=False)
+                            out_t = out_t - skip
+                        
+                        sr = (out_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * (255.0 / in_scale)).clip(0, 255).astype(np.uint8)
+                        
+                        psnr = calculate_psnr(sr, target)
+                        
+                        bgr_str = "YES" if use_bgr else "NO"
+                        mean_str = "YES" if use_mean else "NO"
+                        print(f"{bgr_str:<5} | {mean_str:<5} | {in_scale:<6} | {logic:<15} | {psnr:.2f} dB")
+                        
+                        if psnr > 32:
+                            print(f"🎉 FOUND IT! Config: BGR={use_bgr}, Mean={use_mean}, Scale={in_scale}, Logic={logic}")
 
 if __name__ == "__main__":
     run_diagnostics()
