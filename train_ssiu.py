@@ -12,14 +12,24 @@ from ssiu_improved import ImprovedSSIUNet
 class DIV2KSOTADataset(Dataset):
     def __init__(self, data_path=None, upscale=4, patch_size=64):
         super().__init__()
-        self.target_dir = data_path if data_path else '/kaggle/input/datasets/harshraone/div2k-dataset/DIV2K_train_HR/DIV2K_train_HR'
-        self.file_list = []
-        if os.path.exists(self.target_dir):
-            self.file_list = sorted([os.path.join(self.target_dir, f) for f in os.listdir(self.target_dir) if f.endswith(('.png', '.jpg'))])
-            print(f"Loading {len(self.file_list)} images for SOTA training... 🖼️")
+        # Use provided path or deep-search for common Kaggle DIV2K locations
+        self.target_dir = data_path
+        if not self.target_dir:
+            # Fallback path
+            self.target_dir = '/kaggle/input/datasets/harshraone/div2k-dataset/DIV2K_train_HR/DIV2K_train_HR'
+            
+        print(f"🔍 Checking dataset path: {self.target_dir}")
+        if not os.path.exists(self.target_dir):
+            raise FileNotFoundError(f"❌ DATASET NOT FOUND! Path does not exist: {self.target_dir}\n"
+                                  "Please check your Kaggle dataset attachment and set the correct --data_path.")
         
-        self.upscale = upscale
-        self.patch_size = patch_size
+        self.file_list = sorted([os.path.join(self.target_dir, f) for f in os.listdir(self.target_dir) if f.endswith(('.png', '.jpg'))])
+        
+        if len(self.file_list) == 0:
+            raise ValueError(f"❌ NO IMAGES FOUND! The folder {self.target_dir} is empty.\n"
+                             "Check if you need to go one level deeper (e.g., adding /DIV2K_train_HR).")
+            
+        print(f"✅ Found {len(self.file_list)} images. Starting SOTA training... 🖼️")
 
     def __len__(self):
         return len(self.file_list)
