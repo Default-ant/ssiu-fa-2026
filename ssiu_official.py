@@ -67,7 +67,9 @@ class SSUFSRNet(nn.Module):
         
         a = self.moe(exp) + res  
         
-        a = self.tail(a) # + F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=False)  
+        a = self.tail(a) + F.interpolate(x, scale_factor=self.scale, mode='bilinear', align_corners=False)  
+
+        # a = torch.clamp(a, min=0.0, max=self.rgb_range)
         
         return a[:, :, 0:H*self.scale, 0:W*self.scale]  
 
