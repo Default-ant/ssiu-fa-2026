@@ -207,10 +207,15 @@ def train(data_path, iterations=DEFAULT_ITERATIONS, resume_path=None):
 
     # ─── Optimizer & Scheduler ──────────────────────────────────────────────
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.999))
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=iterations, 
-                                                     eta_min=ETA_MIN, last_epoch=start_iter-1 if start_iter > 0 else -1)
     
-    # If resuming, we need to load optimizer state if available or handle LR jump
+    # CRITICAL: Set initial_lr for scheduler if resuming
+    for group in optimizer.param_groups:
+        group.setdefault('initial_lr', LEARNING_RATE)
+
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=iterations, 
+                                                     eta_min=ETA_MIN, last_epoch=start_iter if start_iter > 0 else -1)
+    
+    # If resuming, we need to load optimizer state if available
     if resume_path and os.path.exists(resume_path):
         ckpt = torch.load(resume_path, map_location=device)
         if isinstance(ckpt, dict) and 'optimizer_state_dict' in ckpt:
