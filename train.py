@@ -208,8 +208,14 @@ def train(data_path, iterations=DEFAULT_ITERATIONS, resume_path=None):
     # ─── Optimizer & Scheduler ──────────────────────────────────────────────
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.999))
     
-    # CRITICAL: Set initial_lr for scheduler if resuming
+    # Calculate starting LR using cosine formula to ensure precision on resume
+    import math
+    current_lr = ETA_MIN + 0.5 * (LEARNING_RATE - ETA_MIN) * (
+        1 + math.cos(math.pi * start_iter / iterations)
+    )
+    
     for group in optimizer.param_groups:
+        group['lr'] = current_lr
         group.setdefault('initial_lr', LEARNING_RATE)
 
     scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=iterations, 
@@ -221,6 +227,7 @@ def train(data_path, iterations=DEFAULT_ITERATIONS, resume_path=None):
         if isinstance(ckpt, dict) and 'optimizer_state_dict' in ckpt:
             optimizer.load_state_dict(ckpt['optimizer_state_dict'])
 
+    print(f"  Starting LR : {optimizer.param_groups[0]['lr']:.6f}")
     criterion = CharbonnierLoss()
     scaler = torch.amp.GradScaler('cuda')
 
