@@ -170,12 +170,32 @@ def train(data_path, iterations=DEFAULT_ITERATIONS, resume_path=None):
     print(f"  Parameters  : {params_k:.1f} K")
 
     # ─── Resume ─────────────────────────────────────────────────────────────
+    start_iter = 0
     if resume_path and os.path.exists(resume_path):
         ckpt = torch.load(resume_path, map_location=device)
-        sd = ckpt if isinstance(ckpt, dict) and 'conv_in.weight' in ckpt else ckpt.get('model_state_dict', ckpt)
+        
+        # Determine iteration from checkpoint or filename
+        if isinstance(ckpt, dict) and 'iteration' in ckpt:
+            start_iter = ckpt['iteration']
+            sd = ckpt['model_state_dict']
+        else:
+            sd = ckpt if isinstance(ckpt, dict) and 'conv_in.weight' in ckpt else ckpt.get('model_state_dict', ckpt)
+            # Try to parse iteration from filename (e.g., ssiu_fa_x4_iter_30000.pth)
+            import re
+            match = re.search(r'iter_(\d+)', os.path.basename(resume_path))
+            if match:
+                start_iter = int(match.group(1))
+        
         sd = {k.replace('module.', ''): v for k, v in sd.items()}
         model.load_state_dict(sd)
-        print(f"  Resumed from: {resume_path}")
+        
+        # Optional: load optimizer if it exists
+        if isinstance(ckpt, dict) and 'optimizer_state_dict' in ckpt:
+            optimizer_temp = optim.Adam(model.parameters(), lr=LEARNING_RATE)
+            optimizer_temp.load_state_dict(ckpt['optimizer_state_dict'])
+            # We will re-init optimizer properly below but this confirms it's possible
+        
+        print(f"  Resumed from: {resume_path} (Iteration {start_iter})")
 
     # ─── Dataset ────────────────────────────────────────────────────────────
     dataset = DIV2KDataset(data_path)
@@ -187,7 +207,15 @@ def train(data_path, iterations=DEFAULT_ITERATIONS, resume_path=None):
 
     # ─── Optimizer & Scheduler ──────────────────────────────────────────────
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.999))
-    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=iterations, eta_min=ETA_MIN)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=iterations, 
+                                                     eta_min=ETA_MIN, last_epoch=start_iter-1 if start_iter > 0 else -1)
+    
+    # If resuming, we need to load optimizer state if available or handle LR jump
+    if resume_path and os.path.exists(resume_path):
+        ckpt = torch.load(resume_path, map_location=device)
+        if isinstance(ckpt, dict) and 'optimizer_state_dict' in ckpt:
+            optimizer.load_state_dict(ckpt['optimizer_state_dict'])
+
     criterion = CharbonnierLoss()
     scaler = torch.amp.GradScaler('cuda')
 
@@ -195,7 +223,7 @@ def train(data_path, iterations=DEFAULT_ITERATIONS, resume_path=None):
     model.train()
     loader_iter = iter(dataloader)
 
-    for i in range(1, iterations + 1):
+    for i in range(start_iter + 1, iterations + 1):
         try:
             lr, hr = next(loader_iter)
         except StopIteration:
@@ -224,7 +252,13 @@ def train(data_path, iterations=DEFAULT_ITERATIONS, resume_path=None):
 
         if i % 5000 == 0 or i == iterations:
             ckpt_path = f"ssiu_fa_x4_iter_{i}.pth"
-            torch.save(model.state_dict(), ckpt_path)
+            save_data = {
+                'iteration': i,
+                'model_state_dict': model.state_dict(),
+                'optimizer_state_dict': optimizer.state_dict(),
+                'scheduler_state_dict': scheduler.state_dict(),
+            }
+            torch.save(save_data, ckpt_path)
             print(f"  >>> Checkpoint saved: {ckpt_path}")
 
     # ─── Final Save ─────────────────────────────────────────────────────────
