@@ -75,13 +75,16 @@ class SpectralGateAttention(nn.Module):
 
     def forward(self, x):
         B, C, H, W = x.shape
+        dtype = x.dtype
         global_feat = torch.mean(x, dim=(2, 3))
         spectral_gate = self.net(global_feat).view(B, C, 1, 1)
 
-        x_fft = torch.fft.rfft2(x, dim=(-2, -1), norm='ortho')
-        x_fft = x_fft * spectral_gate
+        # Force FFT to float32 to avoid ComplexHalf experimental support issues in AMP
+        x_fft = torch.fft.rfft2(x.to(torch.float32), dim=(-2, -1), norm='ortho')
+        x_fft = x_fft * spectral_gate.to(torch.float32)
         out = torch.fft.irfft2(x_fft, s=(H, W), dim=(-2, -1), norm='ortho')
-        return out
+        
+        return out.to(dtype)
 
 
 class ImprovedSSIUBlockV2(nn.Module):
