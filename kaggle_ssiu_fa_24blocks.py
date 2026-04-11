@@ -177,6 +177,9 @@ FFT_LOSS_WEIGHT = 0.05
 
 # Auto-detect training data on Kaggle (DF2K preferred over DIV2K)
 KAGGLE_PATHS = [
+    # User-provided exact paths
+    '/kaggle/input/datasets/anvu1204/df2kdata/DF2K_train_HR',
+    '/kaggle/input/datasets/bansalyash/div2k-hr',
     # DF2K (3450 images — preferred for best results)
     '/kaggle/input/df2k-dataset/DF2K_train_HR',
     '/kaggle/input/df2k/DF2K_train_HR',

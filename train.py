@@ -42,14 +42,14 @@ FFT_LOSS_WEIGHT = 0.05
 
 # Common Kaggle dataset paths (auto-detect, DF2K preferred)
 KAGGLE_PATHS = [
-    # DF2K (3450 images — preferred)
+    # User-provided exact paths
+    '/kaggle/input/datasets/anvu1204/df2kdata/DF2K_train_HR',
+    '/kaggle/input/datasets/bansalyash/div2k-hr',
+    # Others
     '/kaggle/input/df2k-dataset/DF2K_train_HR',
     '/kaggle/input/df2k/DF2K_train_HR',
-    # DIV2K fallback (800 images)
     '/kaggle/input/div2k-dataset/DIV2K_train_HR',
     '/kaggle/input/div2k-dataset/DIV2K_train_HR/DIV2K_train_HR',
-    '/kaggle/input/datasets/harshraone/div2k-dataset/DIV2K_train_HR/DIV2K_train_HR',
-    '/kaggle/input/div2k-high-resolution-images/DIV2K_train_HR',
 ]
 
 
