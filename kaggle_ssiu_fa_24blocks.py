@@ -295,18 +295,24 @@ model = ImprovedSSIUNet(upscale=UPSCALE, embed_dim=EMBED_DIM,
 params_k = sum(p.numel() for p in model.parameters()) / 1e3
 print(f"  Parameters  : {params_k:.1f} K")
 
-# Resume weights if provided
+# Auto-detect checkpoint from Kaggle datasets if RESUME_PATH is empty
+if not RESUME_PATH:
+    import glob
+    for p in glob.glob('/kaggle/input/**/*.pth', recursive=True):
+        if '20000' in p or '24b' in p:
+            RESUME_PATH = p
+            break
+
 start_iter = 0
 if RESUME_PATH and os.path.isfile(RESUME_PATH):
     print(f"  🚀 Resuming from: {RESUME_PATH}")
     checkpoint = torch.load(RESUME_PATH, map_location=device)
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
-        start_iter = checkpoint.get('iteration', 0)
+        start_iter = checkpoint.get('iteration', 20000)
     else:
         model.load_state_dict(checkpoint)
-        # If it's just weights, try to guess iteration from name
-        if '20000' in RESUME_PATH: start_iter = 20000
+        start_iter = 20000  # Default to 20k since we know that's where we left off
     print(f"  Continuing from iteration: {start_iter}")
 else:
     print("  🌱 Starting from scratch")
