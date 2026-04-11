@@ -34,14 +34,18 @@ UPSCALE = 4
 PATCH_SIZE_LR = 64          # LR patch size
 PATCH_SIZE_HR = PATCH_SIZE_LR * UPSCALE   # 256, matches baseline config
 BATCH_SIZE = 32
-DEFAULT_ITERATIONS = 50000
+DEFAULT_ITERATIONS = 20000
 LEARNING_RATE = 1e-3
 ETA_MIN = 1e-6
 FFT_LOSS_WEIGHT = 0.05
 # ────────────────────────────────────────────────────────────────────────────────
 
-# Common Kaggle DIV2K paths (auto-detect)
+# Common Kaggle dataset paths (auto-detect, DF2K preferred)
 KAGGLE_PATHS = [
+    # DF2K (3450 images — preferred)
+    '/kaggle/input/df2k-dataset/DF2K_train_HR',
+    '/kaggle/input/df2k/DF2K_train_HR',
+    # DIV2K fallback (800 images)
     '/kaggle/input/div2k-dataset/DIV2K_train_HR',
     '/kaggle/input/div2k-dataset/DIV2K_train_HR/DIV2K_train_HR',
     '/kaggle/input/datasets/harshraone/div2k-dataset/DIV2K_train_HR/DIV2K_train_HR',
