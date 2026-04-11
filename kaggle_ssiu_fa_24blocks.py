@@ -322,10 +322,19 @@ dataloader = DataLoader(
 
 # Optimizer & Scheduler
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.999))
+
+# Mandatory: Force initial LR calculation if resuming to prevent "LR jump"
+current_lr = LEARNING_RATE
+if start_iter > 0:
+    current_lr = ETA_MIN + 0.5 * (LEARNING_RATE - ETA_MIN) * (
+        1 + math.cos(math.pi * start_iter / ITERATIONS)
+    )
+
 for group in optimizer.param_groups:
+    group['lr'] = current_lr
     group.setdefault('initial_lr', LEARNING_RATE)
 
-# Initialize scheduler with last_epoch to handle resume correctly
+# Initialize scheduler with last_epoch
 scheduler = optim.lr_scheduler.CosineAnnealingLR(
     optimizer, T_max=ITERATIONS, eta_min=ETA_MIN, 
     last_epoch=start_iter if start_iter > 0 else -1
