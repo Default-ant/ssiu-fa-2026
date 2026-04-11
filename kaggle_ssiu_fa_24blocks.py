@@ -173,7 +173,8 @@ UPSCALE = 4
 PATCH_SIZE_LR = 64
 PATCH_SIZE_HR = PATCH_SIZE_LR * UPSCALE   # 256
 BATCH_SIZE = 32
-ITERATIONS = 30000
+ITERATIONS = 40000
+RESUME_PATH = ""   # Set this to your .pth file path to resume (e.g., "/kaggle/input/.../ssiu_fa_24b_20000.pth")
 LEARNING_RATE = 1e-3
 ETA_MIN = 1e-6
 FFT_LOSS_WEIGHT = 0.05
@@ -294,6 +295,22 @@ model = ImprovedSSIUNet(upscale=UPSCALE, embed_dim=EMBED_DIM,
 params_k = sum(p.numel() for p in model.parameters()) / 1e3
 print(f"  Parameters  : {params_k:.1f} K")
 
+# Resume weights if provided
+start_iter = 0
+if RESUME_PATH and os.path.isfile(RESUME_PATH):
+    print(f"  🚀 Resuming from: {RESUME_PATH}")
+    checkpoint = torch.load(RESUME_PATH, map_location=device)
+    if 'model_state_dict' in checkpoint:
+        model.load_state_dict(checkpoint['model_state_dict'])
+        start_iter = checkpoint.get('iteration', 0)
+    else:
+        model.load_state_dict(checkpoint)
+        # If it's just weights, try to guess iteration from name
+        if '20000' in RESUME_PATH: start_iter = 20000
+    print(f"  Continuing from iteration: {start_iter}")
+else:
+    print("  🌱 Starting from scratch")
+
 # Dataset
 data_path = auto_detect_data_path()
 if data_path is None:
@@ -311,12 +328,19 @@ dataloader = DataLoader(
 optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.999))
 for group in optimizer.param_groups:
     group.setdefault('initial_lr', LEARNING_RATE)
+
+# Re-initialize scheduler to handle the total duration correctly
 scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=ITERATIONS, eta_min=ETA_MIN)
+
+# Fast-forward scheduler if resuming
+for _ in range(start_iter):
+    scheduler.step()
 
 criterion = CharbonnierLoss()
 scaler = torch.amp.GradScaler('cuda')
 
 print("=" * 60)
+print(f"  Target Iter : {ITERATIONS}")
 print(f"  Starting LR : {optimizer.param_groups[0]['lr']:.6f}")
 print("  🚀 Training started...")
 print("=" * 60)
@@ -325,7 +349,7 @@ print("=" * 60)
 model.train()
 loader_iter = iter(dataloader)
 
-for i in range(1, ITERATIONS + 1):
+for i in range(start_iter + 1, ITERATIONS + 1):
     try:
         lr, hr = next(loader_iter)
     except StopIteration:
