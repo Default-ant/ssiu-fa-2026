@@ -325,12 +325,11 @@ optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE, betas=(0.9, 0.999))
 for group in optimizer.param_groups:
     group.setdefault('initial_lr', LEARNING_RATE)
 
-# Re-initialize scheduler to handle the total duration correctly
-scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=ITERATIONS, eta_min=ETA_MIN)
-
-# Fast-forward scheduler if resuming
-for _ in range(start_iter):
-    scheduler.step()
+# Initialize scheduler with last_epoch to handle resume correctly
+scheduler = optim.lr_scheduler.CosineAnnealingLR(
+    optimizer, T_max=ITERATIONS, eta_min=ETA_MIN, 
+    last_epoch=start_iter if start_iter > 0 else -1
+)
 
 criterion = CharbonnierLoss()
 scaler = torch.amp.GradScaler('cuda')
