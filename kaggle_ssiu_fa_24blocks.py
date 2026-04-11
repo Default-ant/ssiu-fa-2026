@@ -467,70 +467,73 @@ def find_hr_images(data_path):
 
 # ─── Run Evaluation ─────────────────────────────────────────────────────────
 model.eval()
-model_path = "ssiu_fa_24b_final.pth"
 
-set5_path = find_set5()
-if set5_path is None:
-    print("⚠️  Set5 not found! Please attach the Set5 dataset.")
-    print("   Go to: Add Data → Search 'set5' → Add 'Set5 HR LR'")
-else:
-    hr_paths = find_hr_images(set5_path)
-    print("=" * 65)
-    print("  SSIU-FA 24-BLOCK EVALUATION — x4 Super-Resolution")
-    print("=" * 65)
-    print(f"  Device      : {device}")
-    print(f"  Blocks      : {NUM_BLOCKS}")
-    print(f"  Parameters  : {params_k:.1f} K")
-    print(f"  Test Images : {len(hr_paths)}")
-    print(f"  Border      : {BORDER} px")
-    print("=" * 65)
+# Common datasets to find
+DATASETS = ['Set5', 'Set14', 'BSD100', 'Urban100', 'Manga109']
+RESULTS = {}
 
+print("=" * 65)
+print("  SSIU-FA FULL BENCHMARK SUITE — x4 Super-Resolution")
+print("=" * 65)
+print(f"  Device      : {device}")
+print(f"  Blocks      : {NUM_BLOCKS}")
+print(f"  Parameters  : {params_k:.1f} K")
+print("=" * 65)
+
+for ds_name in DATASETS:
+    # Robust search for dataset path
+    ds_path = None
+    search_dirs = [
+        f'/kaggle/input/{ds_name.lower()}/{ds_name}',
+        f'/kaggle/input/{ds_name}-hr-lr/{ds_name}',
+        f'/kaggle/input/sr-benchmark-datasets/{ds_name}',
+        f'/kaggle/input/datasets/chenqizhou/{ds_name.lower()}-hr-lr/{ds_name}',
+    ]
+    # Check if we can find it by name anywhere in input
+    for root, dirs, _ in os.walk('/kaggle/input'):
+        if os.path.basename(root).lower() == ds_name.lower():
+            ds_path = root
+            break
+            
+    if not ds_path or not os.path.exists(ds_path):
+        continue
+
+    hr_paths = find_hr_images(ds_path)
+    if not hr_paths: continue
+
+    print(f"\nEvaluating {ds_name} ({len(hr_paths)} images)...")
     psnrs, ssims = [], []
-    print(f"\n  {'Image':<20s} | {'PSNR':>10s} | {'SSIM':>10s}")
-    print("  " + "-" * 50)
-
+    
     for p in hr_paths:
         img_bgr = cv2.imread(p)
-        if img_bgr is None:
-            continue
+        if img_bgr is None: continue
         h, w, _ = img_bgr.shape
         h, w = h - (h % UPSCALE), w - (w % UPSCALE)
         img_bgr = img_bgr[:h, :w, :]
         hr_rgb = cv2.cvtColor(img_bgr, cv2.COLOR_BGR2RGB)
-
-        lr_pil = Image.fromarray(hr_rgb).resize(
-            (w // UPSCALE, h // UPSCALE), resample=Image.BICUBIC
-        )
+        lr_pil = Image.fromarray(hr_rgb).resize((w // UPSCALE, h // UPSCALE), resample=Image.BICUBIC)
         lr_rgb = np.array(lr_pil)
 
         with torch.no_grad():
             lr_t = torch.from_numpy(lr_rgb.copy()).permute(2, 0, 1).float().unsqueeze(0).to(device) / 255.0
             sr_t = model(lr_t)
             sr_rgb = (sr_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
-            if sr_rgb.shape[0] != h or sr_rgb.shape[1] != w:
-                sr_rgb = np.array(Image.fromarray(sr_rgb).resize((w, h), resample=Image.BICUBIC))
+        
+        psnrs.append(calculate_psnr_y(sr_rgb, hr_rgb))
+        ssims.append(calculate_ssim_y(sr_rgb, hr_rgb))
 
-        psnr = calculate_psnr_y(sr_rgb, hr_rgb)
-        ssim_val = calculate_ssim_y(sr_rgb, hr_rgb)
-        psnrs.append(psnr)
-        ssims.append(ssim_val)
+    avg_psnr, avg_ssim = np.mean(psnrs), np.mean(ssims)
+    RESULTS[ds_name] = (avg_psnr, avg_ssim)
+    print(f"  > {ds_name}: {avg_psnr:.2f} dB / {avg_ssim:.4f}")
 
-        name = os.path.basename(p)[:18]
-        print(f"  {name:<20s} | {psnr:>8.2f} dB | {ssim_val:>10.4f}")
-
-    print("  " + "-" * 50)
-    avg_psnr = np.mean(psnrs)
-    avg_ssim = np.mean(ssims)
-    print(f"  {'AVERAGE':<20s} | {avg_psnr:>8.2f} dB | {avg_ssim:>10.4f}")
-    print()
-    print(f"  📊 Paper baseline (Set5 x4) : 32.18 dB / 0.8950 SSIM")
-    print(f"  🎯 Our 24-block result      : {avg_psnr:.2f} dB / {avg_ssim:.4f} SSIM")
-    diff = avg_psnr - 32.18
-    if diff > 0:
-        print(f"  🏆 WE BEAT THE PAPER BY     : +{diff:.2f} dB!")
-    else:
-        print(f"  📈 Gap to paper             : {diff:.2f} dB (need more training)")
-    print("=" * 65)
+print("\n" + "=" * 65)
+print("  🏆 FINAL PERFORMANCE SUMMARY")
+print("=" * 65)
+print(f"  {'Dataset':<15s} | {'PSNR':>10s} | {'SSIM':>10s}")
+print("  " + "-" * 45)
+for ds, vals in RESULTS.items():
+    print(f"  {ds:<15s} | {vals[0]:>8.2f} dB | {vals[1]:>10.4f}")
+print("=" * 65)
 
 
 # === CELL 5: Download Weights ================================================
