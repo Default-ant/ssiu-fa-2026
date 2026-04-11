@@ -174,7 +174,7 @@ PATCH_SIZE_LR = 64
 PATCH_SIZE_HR = PATCH_SIZE_LR * UPSCALE   # 256
 BATCH_SIZE = 32
 ITERATIONS = 40000
-RESUME_PATH = ""   # Set this to your .pth file path to resume (e.g., "/kaggle/input/.../ssiu_fa_24b_20000.pth")
+RESUME_PATH = "ssiu_fa_24b_20000.pth"
 LEARNING_RATE = 1e-3
 ETA_MIN = 1e-6
 FFT_LOSS_WEIGHT = 0.05
@@ -292,17 +292,7 @@ print(f"  AMP         : Enabled")
 # Model
 model = ImprovedSSIUNet(upscale=UPSCALE, embed_dim=EMBED_DIM,
                         num_blocks=NUM_BLOCKS).to(device)
-params_k = sum(p.numel() for p in model.parameters()) / 1e3
-print(f"  Parameters  : {params_k:.1f} K")
-
-# Auto-detect checkpoint from Kaggle datasets if RESUME_PATH is empty
-if not RESUME_PATH:
-    import glob
-    for p in glob.glob('/kaggle/input/**/*.pth', recursive=True):
-        if '20000' in p or '24b' in p:
-            RESUME_PATH = p
-            break
-
+# Resume weights if provided (Now natively bundled in Git)
 start_iter = 0
 if RESUME_PATH and os.path.isfile(RESUME_PATH):
     print(f"  🚀 Resuming from: {RESUME_PATH}")
