@@ -13,7 +13,7 @@ import torch.nn.functional as F
 # ─── Fixed Configuration ───────────────────────────────────────────────────────
 SCALE = 4
 EMBED_DIM = 64
-NUM_BLOCKS = 24
+NUM_BLOCKS = 28
 # ────────────────────────────────────────────────────────────────────────────────
 
 

@@ -19,7 +19,7 @@ import torch.nn.functional as F
 # ─── Fixed Configuration ───────────────────────────────────────────────────────
 SCALE = 4
 EMBED_DIM = 64
-NUM_BLOCKS = 24
+NUM_BLOCKS = 28
 # ────────────────────────────────────────────────────────────────────────────────
 
 
@@ -174,7 +174,7 @@ PATCH_SIZE_LR = 64
 PATCH_SIZE_HR = PATCH_SIZE_LR * UPSCALE   # 256
 BATCH_SIZE = 32
 ITERATIONS = 40000
-RESUME_PATH = "ssiu_fa_24b_20000.pth"
+RESUME_PATH = "ssiu_fa_28b_start.pth"
 LEARNING_RATE = 1e-3
 ETA_MIN = 1e-6
 FFT_LOSS_WEIGHT = 0.05
@@ -299,10 +299,18 @@ if RESUME_PATH and os.path.isfile(RESUME_PATH):
     checkpoint = torch.load(RESUME_PATH, map_location=device)
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
-        start_iter = checkpoint.get('iteration', 20000)
+        # If it's the warm start, we treat it as iter 0 but with better knowledge
+        if "start" in RESUME_PATH:
+            start_iter = 0
+            print("  🔥 Warm Start detected: Bootstrapping 28-block model with 24-block knowledge.")
+        else:
+            start_iter = checkpoint.get('iteration', 0)
     else:
         model.load_state_dict(checkpoint)
-        start_iter = 20000  # Default to 20k since we know that's where we left off
+        if "start" in RESUME_PATH:
+            start_iter = 0
+            print("  🔥 Warm Start detected: Bootstrapping 28-block model with 24-block knowledge.")
+        elif '20000' in RESUME_PATH: start_iter = 20000
     print(f"  Continuing from iteration: {start_iter}")
 else:
     print("  🌱 Starting from scratch")
