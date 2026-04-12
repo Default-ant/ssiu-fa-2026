@@ -173,8 +173,8 @@ UPSCALE = 4
 PATCH_SIZE_LR = 64
 PATCH_SIZE_HR = PATCH_SIZE_LR * UPSCALE   # 256
 BATCH_SIZE = 32
-ITERATIONS = 25000
-RESUME_PATH = "ssiu_fa_28b_start.pth"
+ITERATIONS = 50000
+RESUME_PATH = ""
 LEARNING_RATE = 1e-3
 ETA_MIN = 1e-6
 FFT_LOSS_WEIGHT = 0.05
@@ -490,7 +490,7 @@ DATASETS = ['Set5', 'Set14', 'BSD100', 'Urban100', 'Manga109']
 RESULTS = {}
 
 print("=" * 65)
-print("  SSIU-FA FULL BENCHMARK SUITE — x4 Super-Resolution")
+print("  SSIU-FA ULTIMATE 32-BLOCK BENCHMARK SUITE")
 print("=" * 65)
 print(f"  Device      : {device}")
 print(f"  Blocks      : {NUM_BLOCKS}")
