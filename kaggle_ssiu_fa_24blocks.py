@@ -172,7 +172,7 @@ from PIL import Image
 UPSCALE = 4
 PATCH_SIZE_LR = 64
 PATCH_SIZE_HR = PATCH_SIZE_LR * UPSCALE   # 256
-BATCH_SIZE = 32
+BATCH_SIZE = 16
 ITERATIONS = 25000
 RESUME_PATH = "ssiu_fa_48b_start.pth"  # This will be generated dynamically on Kaggle
 LEARNING_RATE = 1e-3
