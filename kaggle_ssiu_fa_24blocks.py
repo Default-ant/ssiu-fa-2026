@@ -218,7 +218,7 @@ if data_path is None:
 dataset = DIV2KDataset(data_path)
 dataloader = DataLoader(
     dataset, batch_size=BATCH_SIZE, shuffle=True,
-    num_workers=4, pin_memory=True, drop_last=True
+    num_workers=0, pin_memory=True, drop_last=True
 )
 
 # Optimizer & Scheduler
@@ -281,6 +281,13 @@ for i in range(start_iter + 1, ITERATIONS + 1):
               f"Loss: {loss.item():.5f} "
               f"(L1: {loss_char.item():.5f} | FFT: {loss_fft.item():.5f}) "
               f"LR: {scheduler.get_last_lr()[0]:.6f}")
+        
+        # Proactively clear VRAM/RAM to prevent silent leak crashes
+        del lr, hr, sr, loss, loss_char, loss_fft
+        torch.cuda.empty_cache()
+        # Proactively clear Kaggle cache to prevent silent OOM crashes
+        del lr, hr, sr, loss, loss_char, loss_fft
+        torch.cuda.empty_cache()
 
     if i % 2500 == 0 or i == ITERATIONS:
         ckpt_path = f"ssiu_fa_24b_iter_{i}.pth"
