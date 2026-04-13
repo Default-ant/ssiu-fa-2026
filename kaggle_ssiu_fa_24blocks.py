@@ -275,14 +275,14 @@ for i in range(start_iter + 1, ITERATIONS + 1):
     scaler.update()
     scheduler.step()
 
-    if i % 100 == 0:
+    if i % 500 == 0:
         epoch_idx = (i // len(dataloader)) + 1
         print(f"  [Epoch {epoch_idx} | {i:6d}/{ITERATIONS}] "
               f"Loss: {loss.item():.5f} "
               f"(L1: {loss_char.item():.5f} | FFT: {loss_fft.item():.5f}) "
               f"LR: {scheduler.get_last_lr()[0]:.6f}")
 
-    if i % 5000 == 0 or i == ITERATIONS:
+    if i % 2500 == 0 or i == ITERATIONS:
         ckpt_path = f"ssiu_fa_24b_iter_{i}.pth"
         save_data = {
             'iteration': i,
