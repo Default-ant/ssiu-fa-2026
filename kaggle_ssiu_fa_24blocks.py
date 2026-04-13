@@ -19,7 +19,7 @@ import torch.nn.functional as F
 # ─── Fixed Configuration ───────────────────────────────────────────────────────
 SCALE = 4
 EMBED_DIM = 64
-NUM_BLOCKS = 48
+NUM_BLOCKS = 32
 # ────────────────────────────────────────────────────────────────────────────────
 
 
@@ -285,7 +285,7 @@ print(f"  Patch (HR)  : {PATCH_SIZE_HR}×{PATCH_SIZE_HR}")
 print(f"  Batch size  : {BATCH_SIZE}")
 print(f"  Iterations  : {ITERATIONS}")
 print(f"  LR          : {LEARNING_RATE} → {ETA_MIN} (cosine)")
-print(f"  Loss        : Charbonnier + {FFT_LOSS_WEIGHT}×FFT")
+print(f"  Loss        : L1Loss + {FFT_LOSS_WEIGHT}×FFT")
 print(f"  AMP         : Enabled")
 
 # Model
