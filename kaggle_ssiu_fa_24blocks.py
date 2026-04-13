@@ -173,8 +173,8 @@ UPSCALE = 4
 PATCH_SIZE_LR = 64
 PATCH_SIZE_HR = PATCH_SIZE_LR * UPSCALE   # 256
 BATCH_SIZE = 16
-ITERATIONS = 25000
-RESUME_PATH = "ssiu_fa_48b_start.pth"  # This will be generated dynamically on Kaggle
+ITERATIONS = 10000
+RESUME_PATH = ""
 LEARNING_RATE = 1e-3
 ETA_MIN = 1e-6
 FFT_LOSS_WEIGHT = 0.05
@@ -251,13 +251,12 @@ class DIV2KDataset(Dataset):
         return lr_t, hr_t
 
 
-class CharbonnierLoss(nn.Module):
-    def __init__(self, eps=1e-3):
+class L1Loss(nn.Module):
+    def __init__(self, eps=1e-3):  # eps kept for signature compat
         super().__init__()
-        self.eps = eps
     def forward(self, x, y):
         diff = x - y
-        return torch.mean(torch.sqrt(diff * diff + self.eps * self.eps))
+        return torch.mean(torch.abs(diff))
 
 
 def frequency_loss(sr, hr):
@@ -291,29 +290,29 @@ print(f"  AMP         : Enabled")
 
 # Model
 model = ImprovedSSIUNet(upscale=UPSCALE, embed_dim=EMBED_DIM,
-                        num_blocks=NUM_BLOCKS).to(device)
-# Resume weights if provided (Now natively bundled in Git)
+                        num_blocks=NUM_BLOCKS)
+
+# 🚀 TURBO-SOTA MULTI-GPU SUPPORT
+if torch.cuda.device_count() > 1:
+    print(f"  🔥 Turbo-SOTA: Utilizing {torch.cuda.device_count()} GPUs via DataParallel!")
+    model = nn.DataParallel(model)
+
+model = model.to(device)
+
+# Resume weights if provided
 start_iter = 0
 if RESUME_PATH and os.path.isfile(RESUME_PATH):
     print(f"  🚀 Resuming from: {RESUME_PATH}")
     checkpoint = torch.load(RESUME_PATH, map_location=device)
     if 'model_state_dict' in checkpoint:
         model.load_state_dict(checkpoint['model_state_dict'])
-        # If it's the warm start, we treat it as iter 0 but with better knowledge
-        if "start" in RESUME_PATH:
-            start_iter = 0
-            print("  🔥 Warm Start detected: Bootstrapping 28-block model with 24-block knowledge.")
-        else:
-            start_iter = checkpoint.get('iteration', 0)
+        start_iter = checkpoint.get('iteration', 0)
     else:
         model.load_state_dict(checkpoint)
-        if "start" in RESUME_PATH:
-            start_iter = 0
-            print("  🔥 Warm Start detected: Bootstrapping 28-block model with 24-block knowledge.")
-        elif '20000' in RESUME_PATH: start_iter = 20000
+        start_iter = 0
     print(f"  Continuing from iteration: {start_iter}")
 else:
-    print("  🌱 Starting from scratch")
+    print("  🌱 Starting from scratch (Turbo-SOTA mode)")
 
 # Dataset
 data_path = auto_detect_data_path()
@@ -348,7 +347,7 @@ scheduler = optim.lr_scheduler.CosineAnnealingLR(
     last_epoch=start_iter if start_iter > 0 else -1
 )
 
-criterion = CharbonnierLoss()
+criterion = L1Loss().to(device)
 scaler = torch.amp.GradScaler('cuda')
 
 print("=" * 60)
@@ -383,9 +382,10 @@ for i in range(start_iter + 1, ITERATIONS + 1):
     scheduler.step()
 
     if i % 100 == 0:
-        print(f"  [{i:6d}/{ITERATIONS}] "
+        epoch_idx = (i // len(dataloader)) + 1
+        print(f"  [Epoch {epoch_idx} | {i:6d}/{ITERATIONS}] "
               f"Loss: {loss.item():.5f} "
-              f"(Char: {loss_char.item():.5f} | FFT: {loss_fft.item():.5f}) "
+              f"(L1: {loss_char.item():.5f} | FFT: {loss_fft.item():.5f}) "
               f"LR: {scheduler.get_last_lr()[0]:.6f}")
 
     if i % 5000 == 0 or i == ITERATIONS:

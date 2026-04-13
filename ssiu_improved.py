@@ -13,7 +13,8 @@ import torch.nn.functional as F
 # ─── Fixed Configuration ───────────────────────────────────────────────────────
 SCALE = 4
 EMBED_DIM = 64
-NUM_BLOCKS = 48
+NUM_BLOCKS = 32
+EXPANSION = 2
 # ────────────────────────────────────────────────────────────────────────────────
 
 
@@ -88,11 +89,16 @@ class SpectralGateAttention(nn.Module):
 
 
 class ImprovedSSIUBlockV2(nn.Module):
-    """Single block: SALK → SGA → Channel Attention with dual residual paths."""
-    def __init__(self, dim):
+    """Single block: Expansion → SALK → SGA → Reduction → Channel Attention"""
+    def __init__(self, dim, expansion=EXPANSION):
         super().__init__()
-        self.salk = SimilarityAwareLargeKernel(dim)
-        self.sga = SpectralGateAttention(dim)
+        hidden_dim = int(dim * expansion)
+        
+        self.proj_in = nn.Conv2d(dim, hidden_dim, 1)
+        self.salk = SimilarityAwareLargeKernel(hidden_dim)
+        self.sga = SpectralGateAttention(hidden_dim)
+        self.proj_out = nn.Conv2d(hidden_dim, dim, 1)
+
         self.ca = ChannelAttention(dim)
 
         self.norm1 = nn.LayerNorm(dim)
@@ -104,11 +110,16 @@ class ImprovedSSIUBlockV2(nn.Module):
     def forward(self, x):
         identity = x
 
-        # Path 1: SALK + SGA
+        # Path 1: Expansion -> SALK + SGA -> Reduction
         x = x.permute(0, 2, 3, 1)
         x = self.norm1(x)
         x = x.permute(0, 3, 1, 2)
-        x = identity + self.gamma1.view(1, -1, 1, 1) * self.sga(self.salk(x))
+        
+        x_hid = self.proj_in(x)
+        x_hid = self.sga(self.salk(x_hid))
+        x_out = self.proj_out(x_hid)
+        
+        x = identity + self.gamma1.view(1, -1, 1, 1) * x_out
 
         # Path 2: Channel Attention refinement
         identity = x
