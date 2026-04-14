@@ -285,9 +285,6 @@ for i in range(start_iter + 1, ITERATIONS + 1):
         # Proactively clear VRAM/RAM to prevent silent leak crashes
         del lr, hr, sr, loss, loss_char, loss_fft
         torch.cuda.empty_cache()
-        # Proactively clear Kaggle cache to prevent silent OOM crashes
-        del lr, hr, sr, loss, loss_char, loss_fft
-        torch.cuda.empty_cache()
 
     if i % 2500 == 0 or i == ITERATIONS:
         ckpt_path = f"ssiu_fa_24b_iter_{i}.pth"
