@@ -108,6 +108,11 @@ def calculate_ssim_y(img1_rgb, img2_rgb, border=BORDER):
         return _manual_ssim(y1, y2, data_range=235.0 - 16.0)
 
 
+# Short aliases used by Kaggle notebook cells
+psnr_y = calculate_psnr_y
+ssim_y = calculate_ssim_y
+
+
 def _manual_ssim(img1, img2, data_range, k1=0.01, k2=0.03, win_size=11):
     """Fallback SSIM implementation when skimage is not available."""
     C1 = (k1 * data_range) ** 2
@@ -271,7 +276,12 @@ def evaluate(model_path, data_path, baseline_path=None):
             
             if model is not None:
                 sr_t = model(lr_t)
-                sr_rgb = (sr_t.squeeze(0).permute(1, 2, 0).cpu().numpy() * 255.0).clip(0, 255).astype(np.uint8)
+                sr_np = sr_t.squeeze(0).permute(1, 2, 0).cpu().float().numpy()
+                # Guard against nan/inf from corrupted weights before casting
+                if not np.isfinite(sr_np).all():
+                    print(f"  WARNING: Model output contains nan/inf for {os.path.basename(p)}, skipping")
+                    continue
+                sr_rgb = (sr_np * 255.0).clip(0, 255).astype(np.uint8)
 
                 # Ensure output matches HR size
                 if sr_rgb.shape[0] != h or sr_rgb.shape[1] != w:

@@ -88,8 +88,9 @@ class HaarDWTEdgePrior(nn.Module):
         out = F.conv2d(x_pad, self.haar_filters, groups=3 * C)  # (B, 3C, H, W)
 
         # Split the three sub-bands and compute L2 magnitude
+        # eps=1e-8 prevents 1/sqrt(0)=inf gradient on flat regions
         HL_out, LH_out, HH_out = out.chunk(3, dim=1)             # each (B, C, H, W)
-        edge_map = (HL_out.pow(2) + LH_out.pow(2) + HH_out.pow(2)).sqrt()
+        edge_map = (HL_out.pow(2) + LH_out.pow(2) + HH_out.pow(2) + 1e-8).sqrt()
 
         return edge_map  # (B, C, H, W)
 
@@ -361,9 +362,13 @@ class CombinedLoss(nn.Module):
         l1 = F.l1_loss(pred, target)
 
         # Frequency-domain L1  (2D FFT magnitude)
+        # Use view_as_real + eps-guarded norm to avoid inf gradients on zero-magnitude
+        # coefficients (torch.abs on complex tensors has 1/abs gradient singularity at 0)
         pred_fft   = torch.fft.rfft2(pred,   norm='ortho')
         target_fft = torch.fft.rfft2(target, norm='ortho')
-        lf = F.l1_loss(torch.abs(pred_fft), torch.abs(target_fft))
+        pred_mag   = torch.view_as_real(pred_fft).pow(2).sum(-1).add(1e-8).sqrt()
+        target_mag = torch.view_as_real(target_fft).pow(2).sum(-1).add(1e-8).sqrt()
+        lf = F.l1_loss(pred_mag, target_mag)
 
         return l1 + self.lambda_fft * lf
 
